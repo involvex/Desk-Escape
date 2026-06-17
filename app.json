@@ -1,11 +1,12 @@
 {
   "expo": {
-    "name": "_tmp-expo",
-    "slug": "_tmp-expo",
+    "name": "Desk Escape",
+    "slug": "desk-escape",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "desk-escape",
     "ios": {
       "supportsTablet": true
     },
@@ -16,10 +17,21 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 1,
+      "package": "com.deskescape.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-system-ui",
+      "expo-status-bar",
+      "expo-web-browser",
+      "expo-splash-screen"
+    ]
   }
 }
