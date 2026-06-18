@@ -1,6 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -23,10 +23,7 @@ import { ActionPill } from "@/components/ActionPill";
 import { AgentChat } from "@/components/AgentChat";
 import { FileDrawer } from "@/components/FileDrawer";
 import { SessionPicker } from "@/components/SessionPicker";
-import {
-  TerminalSheet,
-  type TerminalSheetHandle,
-} from "@/components/TerminalSheet";
+import { TerminalPanel } from "@/components/TerminalPanel";
 import { UnifiedDiff } from "@/components/UnifiedDiff";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -44,8 +41,6 @@ export function WorkspaceScreen() {
   const { status, project, agentActive, disconnect, config, session } =
     useConnection();
   const { data: currentProject } = useCurrentProject();
-  const terminalRef = useRef<TerminalSheetHandle>(null);
-
   const [activePanel, setActivePanel] = useState<WorkspacePanel>("agent");
   const [fileDrawerOpen, setFileDrawerOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
@@ -133,10 +128,6 @@ export function WorkspaceScreen() {
     navigation.replace("Connection");
   }, [disconnect, navigation]);
 
-  const handleTerminalDismiss = useCallback(() => {
-    setActivePanel("agent");
-  }, []);
-
   const handlePanelChange = useCallback((panel: WorkspacePanel) => {
     setActivePanel(panel);
     setFileDrawerOpen(panel === "files");
@@ -145,15 +136,6 @@ export function WorkspaceScreen() {
       setDiffOpen(false);
     }
   }, []);
-
-  useEffect(() => {
-    if (activePanel === "terminal") {
-      terminalRef.current?.present();
-      return;
-    }
-
-    terminalRef.current?.dismiss();
-  }, [activePanel]);
 
   const onPanEnd = useCallback((translationX: number) => {
     if (translationX > 80) {
@@ -209,11 +191,15 @@ export function WorkspaceScreen() {
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
           style={styles.content}
         >
-          <GestureDetector gesture={panGesture}>
-            <View style={styles.content}>
-              <AgentChat bottomInset={bottomInset} />
-            </View>
-          </GestureDetector>
+          {activePanel === "terminal" ? (
+            <TerminalPanel bottomInset={bottomInset} />
+          ) : (
+            <GestureDetector gesture={panGesture}>
+              <View style={styles.content}>
+                <AgentChat bottomInset={bottomInset} />
+              </View>
+            </GestureDetector>
+          )}
         </KeyboardAvoidingView>
 
         <FileDrawer
@@ -237,8 +223,6 @@ export function WorkspaceScreen() {
           </View>
         </View>
       </View>
-
-      <TerminalSheet ref={terminalRef} onDismiss={handleTerminalDismiss} />
 
       <SessionPicker
         onClose={() => setSessionPickerOpen(false)}

@@ -2,3 +2,4 @@ node_modules/
 .expo/
 dist/
 .agents/
+src/assets/terminal-shell-html.ts

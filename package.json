@@ -32,6 +32,8 @@
     "@types/react": "~19.2.17",
     "@typescript-eslint/eslint-plugin": "^8.61.1",
     "@typescript-eslint/parser": "^8.61.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "eslint": "^10.5.0",
     "eslint-config-expo": "^56.0.4",
     "eslint-config-prettier": "^10.1.8",
@@ -41,7 +43,9 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo run:android",
+    "postinstall": "bun scripts/build-terminal-shell.mjs",
+    "build:terminal-shell": "bun scripts/build-terminal-shell.mjs",
+    "android": "bun run build:terminal-shell && expo run:android",
     "android:clean": "cmd /c \"cd android && gradlew.bat clean\"",
     "check": "bun run lint:fix && bun run format && bun run typecheck && bun run check:install && bun run doctor",
     "doctor": "bunx expo-doctor --verbose",
@@ -51,7 +55,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate:pty": "bun scripts/validate-pty-ws.mjs",
+    "validate:terminal": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-terminal-android.ps1"
   },
   "private": true
 }
