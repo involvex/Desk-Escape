@@ -25,6 +25,10 @@ function upsertPart(parts: Part[], part: Part, delta?: string): Part[] {
   }
 
   const existing = parts[index];
+  if (!existing) {
+    return parts;
+  }
+
   const copy = [...parts];
 
   if (part.type === "text" && existing.type === "text" && delta) {
@@ -86,6 +90,10 @@ export function applyStreamEvent(
       }
 
       const target = messages[messageIndex];
+      if (!target) {
+        return messages;
+      }
+
       const updated: MessageWithParts = {
         ...target,
         parts: upsertPart(target.parts, part, delta),
@@ -110,6 +118,10 @@ export function applyStreamEvent(
       }
 
       const target = messages[messageIndex];
+      if (!target) {
+        return null;
+      }
+
       const updated: MessageWithParts = {
         ...target,
         parts: removePart(target.parts, event.properties.partID),

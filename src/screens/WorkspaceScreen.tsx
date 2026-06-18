@@ -1,6 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -11,7 +11,11 @@ import {
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { runOnJS } from "react-native-reanimated";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { LogOut, MessagesSquare } from "lucide-react-native";
 import { getWorktreeName } from "@/api/client";
 import { useCurrentProject } from "@/api/hooks";
@@ -19,7 +23,10 @@ import { ActionPill } from "@/components/ActionPill";
 import { AgentChat } from "@/components/AgentChat";
 import { FileDrawer } from "@/components/FileDrawer";
 import { SessionPicker } from "@/components/SessionPicker";
-import { TerminalSheet } from "@/components/TerminalSheet";
+import {
+  TerminalSheet,
+  type TerminalSheetHandle,
+} from "@/components/TerminalSheet";
 import { UnifiedDiff } from "@/components/UnifiedDiff";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -28,18 +35,25 @@ import type { WorkspacePanel } from "@/types/opencode";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "Workspace">;
 
+const ACTION_PILL_HEIGHT = 52;
+
 export function WorkspaceScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, spacing, typography } = useTheme();
+  const insets = useSafeAreaInsets();
   const { status, project, agentActive, disconnect, config, session } =
     useConnection();
   const { data: currentProject } = useCurrentProject();
+  const terminalRef = useRef<TerminalSheetHandle>(null);
 
   const [activePanel, setActivePanel] = useState<WorkspacePanel>("agent");
   const [fileDrawerOpen, setFileDrawerOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const bottomInset =
+    ACTION_PILL_HEIGHT + Math.max(insets.bottom, spacing.sm) + spacing.sm;
 
   const worktreeName = getWorktreeName(
     currentProject?.worktree ?? project?.worktree,
@@ -98,39 +112,67 @@ export function WorkspaceScreen() {
           height: 8,
           width: 8,
         },
+        mainArea: {
+          flex: 1,
+          position: "relative",
+        },
         content: {
           flex: 1,
         },
-        hiddenPanel: {
-          display: "none",
+        actionPillWrap: {
+          elevation: 10,
+          zIndex: 10,
         },
       }),
     [colors, spacing, typography],
   );
 
   const handleDisconnect = useCallback(async () => {
+    setActivePanel("agent");
     await disconnect();
     navigation.replace("Connection");
   }, [disconnect, navigation]);
 
+  const handleTerminalDismiss = useCallback(() => {
+    setActivePanel("agent");
+  }, []);
+
   const handlePanelChange = useCallback((panel: WorkspacePanel) => {
     setActivePanel(panel);
     setFileDrawerOpen(panel === "files");
+
     if (panel === "terminal") {
       setDiffOpen(false);
     }
   }, []);
 
-  const panGesture = Gesture.Pan()
-    .activeOffsetX([-24, 24])
-    .onEnd((event) => {
-      if (event.translationX > 80) {
-        setFileDrawerOpen(true);
-        setActivePanel("files");
-      } else if (event.translationX < -80) {
-        setDiffOpen(true);
-      }
-    });
+  useEffect(() => {
+    if (activePanel === "terminal") {
+      terminalRef.current?.present();
+      return;
+    }
+
+    terminalRef.current?.dismiss();
+  }, [activePanel]);
+
+  const onPanEnd = useCallback((translationX: number) => {
+    if (translationX > 80) {
+      setFileDrawerOpen(true);
+      setActivePanel("files");
+    } else if (translationX < -80) {
+      setDiffOpen(true);
+    }
+  }, []);
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-24, 24])
+        .onEnd((event) => {
+          runOnJS(onPanEnd)(event.translationX);
+        }),
+    [onPanEnd],
+  );
 
   const statusColor =
     status === "connected"
@@ -161,22 +203,18 @@ export function WorkspaceScreen() {
         </Pressable>
       </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-        style={styles.content}
-      >
-        <GestureDetector gesture={panGesture}>
-          <View style={styles.content}>
-            <View
-              style={
-                activePanel === "agent" ? styles.content : styles.hiddenPanel
-              }
-            >
-              <AgentChat />
+      <View style={styles.mainArea}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+          style={styles.content}
+        >
+          <GestureDetector gesture={panGesture}>
+            <View style={styles.content}>
+              <AgentChat bottomInset={bottomInset} />
             </View>
-          </View>
-        </GestureDetector>
+          </GestureDetector>
+        </KeyboardAvoidingView>
 
         <FileDrawer
           onClose={() => {
@@ -188,13 +226,20 @@ export function WorkspaceScreen() {
           visible={fileDrawerOpen}
         />
         <UnifiedDiff onClose={() => setDiffOpen(false)} visible={diffOpen} />
-        <ActionPill
-          activePanel={activePanel}
-          keyboardHeight={keyboardHeight}
-          onChange={handlePanelChange}
-        />
-        <TerminalSheet expanded={activePanel === "terminal"} />
-      </KeyboardAvoidingView>
+
+        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+          <View style={styles.actionPillWrap}>
+            <ActionPill
+              activePanel={activePanel}
+              keyboardHeight={keyboardHeight}
+              onChange={handlePanelChange}
+            />
+          </View>
+        </View>
+      </View>
+
+      <TerminalSheet ref={terminalRef} onDismiss={handleTerminalDismiss} />
+
       <SessionPicker
         onClose={() => setSessionPickerOpen(false)}
         visible={sessionPickerOpen}

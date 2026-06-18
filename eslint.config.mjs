@@ -4,6 +4,13 @@ import eslintPluginPrettier from "eslint-plugin-prettier";
 
 export default [
   ...expo,
+  {
+    settings: {
+      react: {
+        version: "19.2",
+      },
+    },
+  },
   eslintConfigPrettier,
   {
     plugins: {
@@ -14,6 +21,12 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/", ".expo/", "dist/", "babel.config.js"],
+    ignores: [
+      "node_modules/",
+      ".expo/",
+      ".agents/",
+      "dist/",
+      "babel.config.js",
+    ],
   },
 ];

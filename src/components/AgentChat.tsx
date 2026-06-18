@@ -18,6 +18,10 @@ import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { MessageWithParts, Part, ToolPart } from "@/types/opencode";
 
+interface AgentChatProps {
+  bottomInset?: number;
+}
+
 function isToolPart(part: Part): part is ToolPart {
   return part.type === "tool";
 }
@@ -46,7 +50,7 @@ function formatToolLabel(part: ToolPart): string {
   }
 }
 
-export function AgentChat() {
+export function AgentChat({ bottomInset = 0 }: AgentChatProps) {
   const { colors, spacing, typography } = useTheme();
   const { sessionId, contextAttachments } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
@@ -60,12 +64,21 @@ export function AgentChat() {
       StyleSheet.create({
         container: {
           flex: 1,
+          paddingBottom: bottomInset,
           paddingHorizontal: spacing.md,
           paddingTop: spacing.md,
         },
+        list: {
+          flex: 1,
+        },
         listContent: {
+          flexGrow: 1,
           gap: spacing.sm,
-          paddingBottom: spacing.xl,
+          paddingBottom: spacing.md,
+        },
+        listContentEmpty: {
+          flexGrow: 1,
+          justifyContent: "center",
         },
         bubble: {
           borderRadius: 14,
@@ -157,11 +170,10 @@ export function AgentChat() {
         emptyText: {
           color: colors.textMuted,
           fontSize: typography.body,
-          marginTop: spacing.lg,
           textAlign: "center",
         },
       }),
-    [colors, spacing, typography],
+    [bottomInset, colors, spacing, typography],
   );
 
   const handleSend = () => {
@@ -198,6 +210,8 @@ export function AgentChat() {
     );
   };
 
+  const isEmpty = !isLoading && messages.length === 0;
+
   return (
     <View style={styles.container}>
       {contextAttachments.length > 0 ? (
@@ -211,8 +225,12 @@ export function AgentChat() {
       ) : null}
 
       <FlatList
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          isEmpty ? styles.listContentEmpty : null,
+        ]}
         data={messages}
+        keyboardShouldPersistTaps="handled"
         keyExtractor={(item) => item.info.id}
         ListEmptyComponent={
           isLoading ? null : (
@@ -223,6 +241,7 @@ export function AgentChat() {
           )
         }
         renderItem={renderItem}
+        style={styles.list}
       />
 
       <View style={styles.composer}>

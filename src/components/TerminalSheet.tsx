@@ -1,36 +1,53 @@
-import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetModal as BottomSheetModalType,
+} from "@gorhom/bottom-sheet";
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Platform, StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 
-interface TerminalSheetProps {
-  expanded: boolean;
-  onIndexChange?: (index: number) => void;
+export interface TerminalSheetHandle {
+  present: () => void;
+  dismiss: () => void;
 }
 
-export function TerminalSheet({ expanded, onIndexChange }: TerminalSheetProps) {
+interface TerminalSheetProps {
+  onDismiss?: () => void;
+}
+
+export const TerminalSheet = forwardRef<
+  TerminalSheetHandle,
+  TerminalSheetProps
+>(function TerminalSheet({ onDismiss }, ref) {
   const { colors } = useTheme();
   const { config, authHeader, basicAuthCredential } = useConnection();
-  const sheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ["10%", "45%", "95%"], []);
+  const sheetRef = useRef<BottomSheetModalType>(null);
+  const [webViewMounted, setWebViewMounted] = useState(false);
+  const snapPoints = useMemo(() => ["45%", "95%"], []);
 
-  useEffect(() => {
-    if (expanded) {
-      sheetRef.current?.snapToIndex(1);
-      return;
-    }
-
-    sheetRef.current?.snapToIndex(0);
-  }, [expanded]);
-
-  const handleSheetChanges = useCallback(
-    (index: number) => {
-      onIndexChange?.(index);
+  useImperativeHandle(ref, () => ({
+    present: () => {
+      setWebViewMounted(true);
+      sheetRef.current?.present();
     },
-    [onIndexChange],
-  );
+    dismiss: () => {
+      sheetRef.current?.dismiss();
+    },
+  }));
+
+  const handleDismiss = useCallback(() => {
+    onDismiss?.();
+  }, [onDismiss]);
 
   const webViewSource = useMemo(() => {
     if (!config) {
@@ -47,33 +64,35 @@ export function TerminalSheet({ expanded, onIndexChange }: TerminalSheetProps) {
     return { uri: config.baseUrl };
   }, [authHeader, config]);
 
-  if (!config || !webViewSource) {
+  if (!config) {
     return null;
   }
 
   return (
-    <BottomSheet
+    <BottomSheetModal
       ref={sheetRef}
-      index={0}
-      onChange={handleSheetChanges}
+      enablePanDownToClose
+      onDismiss={handleDismiss}
       snapPoints={snapPoints}
       backgroundStyle={{ backgroundColor: colors.surface }}
       handleIndicatorStyle={{ backgroundColor: colors.textMuted }}
     >
       <BottomSheetView style={styles.content}>
-        <WebView
-          basicAuthCredential={basicAuthCredential ?? undefined}
-          cacheEnabled
-          javaScriptEnabled
-          originWhitelist={["*"]}
-          sharedCookiesEnabled
-          source={webViewSource}
-          style={styles.webview}
-        />
+        {webViewMounted && webViewSource ? (
+          <WebView
+            basicAuthCredential={basicAuthCredential ?? undefined}
+            cacheEnabled
+            javaScriptEnabled
+            originWhitelist={["*"]}
+            sharedCookiesEnabled
+            source={webViewSource}
+            style={styles.webview}
+          />
+        ) : null}
       </BottomSheetView>
-    </BottomSheet>
+    </BottomSheetModal>
   );
-}
+});
 
 const styles = StyleSheet.create({
   content: {
