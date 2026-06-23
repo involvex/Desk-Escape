@@ -42,14 +42,16 @@ type WebViewConnectionState =
 
 export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const { colors, spacing, typography } = useTheme();
-  const { client, config, project, basicAuthCredential } = useConnection();
+  const { client, config, project, basicAuthCredential, activeDirectory } =
+    useConnection();
   const { data: currentProject, isLoading: projectLoading } =
     useCurrentProject();
   const [webViewState, setWebViewState] =
     useState<WebViewConnectionState>("loading");
   const [webViewError, setWebViewError] = useState<string | null>(null);
 
-  const directory = currentProject?.worktree ?? project?.worktree ?? null;
+  const directory =
+    activeDirectory ?? currentProject?.worktree ?? project?.worktree ?? null;
 
   const { ptyId, status, error, retry } = usePtySession(directory);
 

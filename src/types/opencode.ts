@@ -11,6 +11,8 @@ export type { Agent, Message, Part, Project, Session, ToolPart };
 
 export type ThemeName = "oled-black" | "dev-dark" | "dev-light";
 
+export type OrientationMode = "portrait" | "auto" | "landscape";
+
 export type ConnectionStatus =
   | "disconnected"
   | "connecting"

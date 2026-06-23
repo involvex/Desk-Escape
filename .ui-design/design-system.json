@@ -1,0 +1,23 @@
+{
+  "chrome": {
+    "headerHeight": 56,
+    "panelTabsHeight": 44,
+    "toolbarHeight": 40,
+    "borderRadius": {
+      "chip": 999,
+      "card": 12,
+      "sheet": 20
+    }
+  },
+  "colors": {
+    "accent": "#22D3EE",
+    "accentMuted": "#155E75",
+    "background": "#000000",
+    "surface": "#0A0A0A",
+    "border": "#262626"
+  },
+  "spacing": {
+    "chromeGap": 0,
+    "contentPadding": 16
+  }
+}

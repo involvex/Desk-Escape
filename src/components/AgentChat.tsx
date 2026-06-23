@@ -8,18 +8,27 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Send } from "lucide-react-native";
+import { Command, Send } from "lucide-react-native";
 import {
+  useCommands,
+  useExecuteCommand,
   useSendPrompt,
   useSessionMessageStream,
   useSessionMessages,
 } from "@/api/hooks";
+import {
+  parseSlashInput,
+  SlashCommandMenu,
+} from "@/components/SlashCommandMenu";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { MessageWithParts, Part, ToolPart } from "@/types/opencode";
 
 interface AgentChatProps {
-  bottomInset?: number;
+  onOpenPalette?: () => void;
+  onCreateSession?: () => void;
+  slashDraft?: string;
+  onSlashDraftChange?: (value: string) => void;
 }
 
 function isToolPart(part: Part): part is ToolPart {
@@ -50,21 +59,32 @@ function formatToolLabel(part: ToolPart): string {
   }
 }
 
-export function AgentChat({ bottomInset = 0 }: AgentChatProps) {
+export function AgentChat({
+  onOpenPalette,
+  onCreateSession,
+  slashDraft,
+  onSlashDraftChange,
+}: AgentChatProps) {
   const { colors, spacing, typography } = useTheme();
   const { sessionId, contextAttachments } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
+  const { data: commands = [] } = useCommands();
   const sendPrompt = useSendPrompt(sessionId);
-  const [draft, setDraft] = useState("");
+  const executeCommand = useExecuteCommand(sessionId);
+  const [localDraft, setLocalDraft] = useState("");
+  const isControlled = onSlashDraftChange !== undefined;
+  const draft = isControlled ? (slashDraft ?? "") : localDraft;
+  const setDraft = isControlled ? onSlashDraftChange : setLocalDraft;
 
   useSessionMessageStream(sessionId);
+
+  const hintCommand = commands[0]?.name ?? "help";
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: {
           flex: 1,
-          paddingBottom: bottomInset,
           paddingHorizontal: spacing.md,
           paddingTop: spacing.md,
         },
@@ -167,24 +187,62 @@ export function AgentChat({ bottomInset = 0 }: AgentChatProps) {
           color: colors.textMuted,
           fontSize: typography.caption,
         },
+        emptyWrap: {
+          alignItems: "center",
+          gap: spacing.md,
+          paddingHorizontal: spacing.lg,
+        },
         emptyText: {
           color: colors.textMuted,
           fontSize: typography.body,
           textAlign: "center",
         },
+        emptyActions: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: spacing.sm,
+          justifyContent: "center",
+        },
+        emptyButton: {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderRadius: 999,
+          borderWidth: 1,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+        },
+        emptyButtonText: {
+          color: colors.text,
+          fontSize: typography.caption,
+          fontWeight: "600",
+        },
       }),
-    [bottomInset, colors, spacing, typography],
+    [colors, spacing, typography],
   );
 
   const handleSend = () => {
     const text = draft.trim();
-    if (!text || sendPrompt.isPending) {
+    if (!text || sendPrompt.isPending || executeCommand.isPending) {
       return;
     }
 
     setDraft("");
     Keyboard.dismiss();
+
+    if (text.startsWith("/")) {
+      const { name, args } = parseSlashInput(text);
+      if (!name) {
+        return;
+      }
+      void executeCommand.mutateAsync({ command: name, arguments: args });
+      return;
+    }
+
     void sendPrompt.mutateAsync(text);
+  };
+
+  const handleSlashSelect = (command: { name: string }) => {
+    setDraft(`/${command.name} `);
   };
 
   const renderItem = ({ item }: { item: MessageWithParts }) => {
@@ -211,6 +269,7 @@ export function AgentChat({ bottomInset = 0 }: AgentChatProps) {
   };
 
   const isEmpty = !isLoading && messages.length === 0;
+  const isPending = sendPrompt.isPending || executeCommand.isPending;
 
   return (
     <View style={styles.container}>
@@ -234,31 +293,64 @@ export function AgentChat({ bottomInset = 0 }: AgentChatProps) {
         keyExtractor={(item) => item.info.id}
         ListEmptyComponent={
           isLoading ? null : (
-            <Text style={styles.emptyText}>
-              Ask the agent to inspect, edit, or run commands on your host
-              workspace.
-            </Text>
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyText}>
+                Ask the agent to inspect, edit, or run commands. Try /
+                {hintCommand} or open the command palette.
+              </Text>
+              <View style={styles.emptyActions}>
+                {onCreateSession ? (
+                  <Pressable
+                    onPress={onCreateSession}
+                    style={styles.emptyButton}
+                  >
+                    <Text style={styles.emptyButtonText}>New session</Text>
+                  </Pressable>
+                ) : null}
+                {onOpenPalette ? (
+                  <Pressable onPress={onOpenPalette} style={styles.emptyButton}>
+                    <Text style={styles.emptyButtonText}>Command palette</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={() => setDraft(`/${hintCommand} `)}
+                  style={styles.emptyButton}
+                >
+                  <Text style={styles.emptyButtonText}>Try /{hintCommand}</Text>
+                </Pressable>
+              </View>
+            </View>
           )
         }
         renderItem={renderItem}
         style={styles.list}
       />
 
+      <SlashCommandMenu
+        commands={commands}
+        onSelect={handleSlashSelect}
+        query={draft}
+      />
+
       <View style={styles.composer}>
         <TextInput
           multiline
           onChangeText={setDraft}
-          placeholder="Message the agent..."
+          placeholder="Message or /command..."
           placeholderTextColor={colors.textMuted}
           style={styles.input}
           value={draft}
         />
         <Pressable
-          disabled={sendPrompt.isPending}
+          disabled={isPending}
           onPress={handleSend}
           style={styles.sendButton}
         >
-          <Send color="#04111A" size={18} />
+          {draft.startsWith("/") ? (
+            <Command color="#04111A" size={18} />
+          ) : (
+            <Send color="#04111A" size={18} />
+          )}
         </Pressable>
       </View>
     </View>

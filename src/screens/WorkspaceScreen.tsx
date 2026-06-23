@@ -1,8 +1,7 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,66 +11,63 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
-import { LogOut, MessagesSquare } from "lucide-react-native";
+  ChevronDown,
+  LogOut,
+  MoreVertical,
+  Settings,
+} from "lucide-react-native";
 import { getWorktreeName } from "@/api/client";
 import { useCurrentProject } from "@/api/hooks";
-import { ActionPill } from "@/components/ActionPill";
 import { AgentChat } from "@/components/AgentChat";
+import {
+  CommandPalette,
+  themeCycleOrder,
+  type PaletteAction,
+} from "@/components/CommandPalette";
 import { FileDrawer } from "@/components/FileDrawer";
+import { PanelTabs } from "@/components/PanelTabs";
+import { ProjectPicker } from "@/components/ProjectPicker";
 import { SessionPicker } from "@/components/SessionPicker";
 import { TerminalPanel } from "@/components/TerminalPanel";
 import { UnifiedDiff } from "@/components/UnifiedDiff";
+import { WorkspaceToolbar } from "@/components/WorkspaceToolbar";
 import { useConnection } from "@/context/ConnectionContext";
+import { useOrientation } from "@/context/OrientationContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type { WorkspacePanel } from "@/types/opencode";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "Workspace">;
 
-const ACTION_PILL_HEIGHT = 52;
-
 export function WorkspaceScreen() {
   const navigation = useNavigation<Navigation>();
-  const { colors, spacing, typography } = useTheme();
-  const insets = useSafeAreaInsets();
-  const { status, project, agentActive, disconnect, config, session } =
-    useConnection();
+  const { colors, spacing, typography, themeName, setThemeName } = useTheme();
+  const { isLandscape } = useOrientation();
+  const {
+    status,
+    project,
+    agentActive,
+    disconnect,
+    session,
+    selectSession,
+    selectProject,
+    createSession,
+  } = useConnection();
   const { data: currentProject } = useCurrentProject();
   const [activePanel, setActivePanel] = useState<WorkspacePanel>("agent");
   const [fileDrawerOpen, setFileDrawerOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
-  const bottomInset =
-    ACTION_PILL_HEIGHT + Math.max(insets.bottom, spacing.sm) + spacing.sm;
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [slashDraft, setSlashDraft] = useState("");
 
   const worktreeName = getWorktreeName(
     currentProject?.worktree ?? project?.worktree,
   );
-
-  useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const showSub = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   const styles = useMemo(
     () =>
@@ -92,6 +88,11 @@ export function WorkspaceScreen() {
         headerTextWrap: {
           flex: 1,
         },
+        titleRow: {
+          alignItems: "center",
+          flexDirection: "row",
+          gap: 4,
+        },
         title: {
           color: colors.text,
           fontSize: typography.subtitle,
@@ -107,16 +108,26 @@ export function WorkspaceScreen() {
           height: 8,
           width: 8,
         },
-        mainArea: {
-          flex: 1,
-          position: "relative",
-        },
         content: {
           flex: 1,
         },
-        actionPillWrap: {
-          elevation: 10,
-          zIndex: 10,
+        overflowMenu: {
+          backgroundColor: colors.surfaceElevated,
+          borderColor: colors.border,
+          borderRadius: 12,
+          borderWidth: 1,
+          position: "absolute",
+          right: spacing.md,
+          top: 52,
+          zIndex: 20,
+        },
+        overflowItem: {
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+        },
+        overflowText: {
+          color: colors.text,
+          fontSize: typography.body,
         },
       }),
     [colors, spacing, typography],
@@ -156,6 +167,56 @@ export function WorkspaceScreen() {
     [onPanEnd],
   );
 
+  const handlePaletteAction = useCallback(
+    (action: PaletteAction) => {
+      switch (action.type) {
+        case "session":
+          void selectSession(action.session.id);
+          break;
+        case "project":
+          void selectProject(action.project.worktree);
+          break;
+        case "command":
+          setActivePanel("agent");
+          setSlashDraft(`/${action.command.name} `);
+          break;
+        case "app":
+          switch (action.id) {
+            case "new-session":
+              void createSession();
+              break;
+            case "settings":
+              navigation.navigate("Settings");
+              break;
+            case "plugins":
+              navigation.navigate("Plugins");
+              break;
+            case "theme": {
+              const index = themeCycleOrder.indexOf(themeName);
+              const next =
+                themeCycleOrder[(index + 1) % themeCycleOrder.length] ??
+                "oled-black";
+              setThemeName(next);
+              break;
+            }
+            case "disconnect":
+              void handleDisconnect();
+              break;
+          }
+          break;
+      }
+    },
+    [
+      createSession,
+      handleDisconnect,
+      navigation,
+      selectProject,
+      selectSession,
+      setThemeName,
+      themeName,
+    ],
+  );
+
   const statusColor =
     status === "connected"
       ? colors.success
@@ -163,40 +224,99 @@ export function WorkspaceScreen() {
         ? colors.warning
         : colors.danger;
 
+  const showToolbar = activePanel === "agent";
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
         <View style={styles.headerTextWrap}>
-          <Pressable onPress={() => setSessionPickerOpen(true)}>
-            <Text style={styles.title}>{worktreeName}</Text>
+          <Pressable onPress={() => setProjectPickerOpen(true)}>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>{worktreeName}</Text>
+              <ChevronDown color={colors.textMuted} size={16} />
+            </View>
             <Text style={styles.subtitle}>
-              {session?.title ?? "Session"} ·{" "}
-              {config?.baseUrl ?? "Disconnected"} · Agent{" "}
+              {session?.title ?? "Session"} · Agent{" "}
               {agentActive ? "active" : "idle"}
             </Text>
           </Pressable>
         </View>
-        <Pressable onPress={() => setSessionPickerOpen(true)}>
-          <MessagesSquare color={colors.textMuted} size={20} />
-        </Pressable>
-        <Pressable onPress={() => void handleDisconnect()}>
-          <LogOut color={colors.textMuted} size={20} />
+        <Pressable onPress={() => setOverflowOpen((current) => !current)}>
+          <MoreVertical color={colors.textMuted} size={20} />
         </Pressable>
       </View>
 
-      <View style={styles.mainArea}>
+      {overflowOpen ? (
+        <View style={styles.overflowMenu}>
+          <Pressable
+            onPress={() => {
+              setOverflowOpen(false);
+              setPaletteOpen(true);
+            }}
+            style={styles.overflowItem}
+          >
+            <Text style={styles.overflowText}>Command palette</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setOverflowOpen(false);
+              navigation.navigate("Settings");
+            }}
+            style={styles.overflowItem}
+          >
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Settings color={colors.textMuted} size={16} />
+              <Text style={styles.overflowText}>Settings</Text>
+            </View>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setOverflowOpen(false);
+              void handleDisconnect();
+            }}
+            style={styles.overflowItem}
+          >
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <LogOut color={colors.textMuted} size={16} />
+              <Text style={styles.overflowText}>Disconnect</Text>
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <PanelTabs activePanel={activePanel} onChange={handlePanelChange} />
+
+      {showToolbar ? (
+        <WorkspaceToolbar
+          compact={isLandscape}
+          onCreateSession={() => void createSession()}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onOpenSessions={() => setSessionPickerOpen(true)}
+        />
+      ) : null}
+
+      <View style={styles.content}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
           style={styles.content}
         >
           {activePanel === "terminal" ? (
-            <TerminalPanel bottomInset={bottomInset} />
+            <TerminalPanel />
           ) : (
             <GestureDetector gesture={panGesture}>
               <View style={styles.content}>
-                <AgentChat bottomInset={bottomInset} />
+                <AgentChat
+                  onOpenPalette={() => setPaletteOpen(true)}
+                  onCreateSession={() => void createSession()}
+                  slashDraft={slashDraft}
+                  onSlashDraftChange={setSlashDraft}
+                />
               </View>
             </GestureDetector>
           )}
@@ -212,21 +332,20 @@ export function WorkspaceScreen() {
           visible={fileDrawerOpen}
         />
         <UnifiedDiff onClose={() => setDiffOpen(false)} visible={diffOpen} />
-
-        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-          <View style={styles.actionPillWrap}>
-            <ActionPill
-              activePanel={activePanel}
-              keyboardHeight={keyboardHeight}
-              onChange={handlePanelChange}
-            />
-          </View>
-        </View>
       </View>
 
       <SessionPicker
         onClose={() => setSessionPickerOpen(false)}
         visible={sessionPickerOpen}
+      />
+      <ProjectPicker
+        onClose={() => setProjectPickerOpen(false)}
+        visible={projectPickerOpen}
+      />
+      <CommandPalette
+        onClose={() => setPaletteOpen(false)}
+        onSelectAction={handlePaletteAction}
+        visible={paletteOpen}
       />
     </SafeAreaView>
   );

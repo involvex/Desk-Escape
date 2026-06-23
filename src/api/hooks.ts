@@ -1,67 +1,154 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import type { Session } from "@opencode-ai/sdk/client";
+import type { Command, Config, Session } from "@opencode-ai/sdk/client";
 import {
   applyStreamEvent,
   isAgentBusyEvent,
   shouldRefetchMessages,
 } from "@/api/message-stream";
+import { withDirectoryQuery } from "@/api/directory";
+import { fetchProjectList } from "@/api/client";
 import { useConnection } from "@/context/ConnectionContext";
 import type { MessageWithParts } from "@/types/opencode";
 
 export const sessionMessagesKey = (sessionId: string) =>
   ["session", sessionId, "messages"] as const;
 
-export const sessionsKey = ["sessions"] as const;
+export const sessionsKey = (directory?: string | null) =>
+  ["sessions", directory ?? "default"] as const;
+
+export const projectsKey = ["projects"] as const;
+
+export const commandsKey = (directory?: string | null) =>
+  ["commands", directory ?? "default"] as const;
+
+export const configKey = ["opencode-config"] as const;
 
 async function fetchSessionMessages(
   client: NonNullable<ReturnType<typeof useConnection>["client"]>,
   sessionId: string,
+  directory?: string | null,
 ): Promise<MessageWithParts[]> {
   const result = await client.session.messages({
     path: { id: sessionId },
+    ...withDirectoryQuery(directory),
   });
 
   return (result.data ?? []) as MessageWithParts[];
 }
 
 export function useSessions() {
-  const { client } = useConnection();
+  const { client, activeDirectory } = useConnection();
 
   return useQuery({
     enabled: Boolean(client),
-    queryKey: sessionsKey,
+    queryKey: sessionsKey(activeDirectory),
     queryFn: async (): Promise<Session[]> => {
       if (!client) {
         return [];
       }
 
-      const result = await client.session.list();
+      const result = await client.session.list(
+        withDirectoryQuery(activeDirectory),
+      );
       return result.data ?? [];
     },
     staleTime: 30_000,
   });
 }
 
-export function useCurrentProject() {
+export function useProjects() {
   const { client } = useConnection();
 
   return useQuery({
     enabled: Boolean(client),
-    queryKey: ["project", "current"],
+    queryKey: projectsKey,
+    queryFn: async () => {
+      if (!client) {
+        return [];
+      }
+      return fetchProjectList(client);
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useCurrentProject() {
+  const { client, activeDirectory } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client),
+    queryKey: ["project", "current", activeDirectory ?? "default"],
     queryFn: async () => {
       if (!client) {
         return null;
       }
-      const result = await client.project.current();
+      const result = await client.project.current(
+        withDirectoryQuery(activeDirectory),
+      );
       return result.data ?? null;
     },
     staleTime: 60_000,
   });
 }
 
-export function useSessionMessages(sessionId: string | null) {
+export function useCommands() {
+  const { client, activeDirectory } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client),
+    queryKey: commandsKey(activeDirectory),
+    queryFn: async (): Promise<Command[]> => {
+      if (!client) {
+        return [];
+      }
+      const result = await client.command.list(
+        withDirectoryQuery(activeDirectory),
+      );
+      return result.data ?? [];
+    },
+    staleTime: 120_000,
+  });
+}
+
+export function useOpenCodeConfig() {
   const { client } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client),
+    queryKey: configKey,
+    queryFn: async (): Promise<Config | null> => {
+      if (!client) {
+        return null;
+      }
+      const result = await client.config.get();
+      return result.data ?? null;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateConfig() {
+  const queryClient = useQueryClient();
+  const { client } = useConnection();
+
+  return useMutation({
+    mutationFn: async (body: Config) => {
+      if (!client) {
+        throw new Error("Not connected.");
+      }
+      const result = await client.config.update({ body });
+      return result.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: configKey });
+      void queryClient.invalidateQueries({ queryKey: ["commands"] });
+    },
+  });
+}
+
+export function useSessionMessages(sessionId: string | null) {
+  const { client, activeDirectory } = useConnection();
 
   return useQuery({
     enabled: Boolean(client && sessionId),
@@ -70,7 +157,7 @@ export function useSessionMessages(sessionId: string | null) {
       if (!client || !sessionId) {
         return [];
       }
-      return fetchSessionMessages(client, sessionId);
+      return fetchSessionMessages(client, sessionId, activeDirectory);
     },
     staleTime: Infinity,
     refetchOnMount: "always",
@@ -78,18 +165,21 @@ export function useSessionMessages(sessionId: string | null) {
 }
 
 export function useFileList(path: string) {
-  const { client } = useConnection();
+  const { client, activeDirectory } = useConnection();
 
   return useQuery({
     enabled: Boolean(client),
-    queryKey: ["file-list", path],
+    queryKey: ["file-list", activeDirectory ?? "default", path],
     queryFn: async () => {
       if (!client) {
         return [];
       }
 
       const result = await client.file.list({
-        query: { path },
+        query: {
+          path,
+          ...(activeDirectory ? { directory: activeDirectory } : {}),
+        },
       });
 
       return result.data ?? [];
@@ -98,17 +188,19 @@ export function useFileList(path: string) {
 }
 
 export function useFileStatus() {
-  const { client } = useConnection();
+  const { client, activeDirectory } = useConnection();
 
   return useQuery({
     enabled: Boolean(client),
-    queryKey: ["file-status"],
+    queryKey: ["file-status", activeDirectory ?? "default"],
     queryFn: async () => {
       if (!client) {
         return [];
       }
 
-      const result = await client.file.status();
+      const result = await client.file.status(
+        withDirectoryQuery(activeDirectory),
+      );
       return result.data ?? [];
     },
     refetchInterval: 30_000,
@@ -116,18 +208,21 @@ export function useFileStatus() {
 }
 
 export function useFilePatch(path: string | null) {
-  const { client } = useConnection();
+  const { client, activeDirectory } = useConnection();
 
   return useQuery({
     enabled: Boolean(client && path),
-    queryKey: ["file-patch", path],
+    queryKey: ["file-patch", activeDirectory ?? "default", path],
     queryFn: async () => {
       if (!client || !path) {
         return null;
       }
 
       const result = await client.file.read({
-        query: { path },
+        query: {
+          path,
+          ...(activeDirectory ? { directory: activeDirectory } : {}),
+        },
       });
 
       return result.data ?? null;
@@ -139,6 +234,7 @@ export function useSendPrompt(sessionId: string | null) {
   const queryClient = useQueryClient();
   const {
     client,
+    activeDirectory,
     setAgentActive,
     clearContextAttachments,
     contextAttachments,
@@ -159,6 +255,7 @@ export function useSendPrompt(sessionId: string | null) {
 
       const result = await client.session.prompt({
         path: { id: sessionId },
+        ...withDirectoryQuery(activeDirectory),
         body: {
           parts: [
             ...attachmentParts,
@@ -179,7 +276,51 @@ export function useSendPrompt(sessionId: string | null) {
         return;
       }
 
-      const messages = await fetchSessionMessages(client, sessionId);
+      const messages = await fetchSessionMessages(
+        client,
+        sessionId,
+        activeDirectory,
+      );
+      queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
+      setAgentActive(false);
+    },
+  });
+}
+
+export function useExecuteCommand(sessionId: string | null) {
+  const queryClient = useQueryClient();
+  const { client, activeDirectory, setAgentActive } = useConnection();
+
+  return useMutation({
+    mutationFn: async (input: { command: string; arguments?: string }) => {
+      if (!client || !sessionId) {
+        throw new Error("No active session.");
+      }
+
+      setAgentActive(true);
+
+      const result = await client.session.command({
+        path: { id: sessionId },
+        ...withDirectoryQuery(activeDirectory),
+        body: {
+          command: input.command,
+          arguments: input.arguments ?? "",
+        },
+      });
+
+      return result.data;
+    },
+    onSettled: async () => {
+      if (!client || !sessionId) {
+        setAgentActive(false);
+        return;
+      }
+
+      const messages = await fetchSessionMessages(
+        client,
+        sessionId,
+        activeDirectory,
+      );
       queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
       setAgentActive(false);
     },
@@ -188,7 +329,7 @@ export function useSendPrompt(sessionId: string | null) {
 
 export function useSessionMessageStream(sessionId: string | null) {
   const queryClient = useQueryClient();
-  const { client, setAgentActive } = useConnection();
+  const { client, activeDirectory, setAgentActive } = useConnection();
 
   useEffect(() => {
     if (!client || !sessionId) {
@@ -215,7 +356,11 @@ export function useSessionMessageStream(sessionId: string | null) {
           }
 
           if (shouldRefetchMessages(event)) {
-            const messages = await fetchSessionMessages(client, sessionId);
+            const messages = await fetchSessionMessages(
+              client,
+              sessionId,
+              activeDirectory,
+            );
             queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
             continue;
           }
@@ -238,5 +383,5 @@ export function useSessionMessageStream(sessionId: string | null) {
       active = false;
       abort.abort();
     };
-  }, [client, queryClient, sessionId, setAgentActive]);
+  }, [activeDirectory, client, queryClient, sessionId, setAgentActive]);
 }

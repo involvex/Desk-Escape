@@ -1,5 +1,6 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/client";
 import { createOpencodeClient } from "@opencode-ai/sdk/client";
+import { withDirectoryQuery } from "@/api/directory";
 import type {
   ConnectionConfig,
   HealthResult,
@@ -141,17 +142,21 @@ export async function testConnection(
 export async function ensureSession(
   client: OpencodeClient,
   preferredSessionId?: string,
+  directory?: string | null,
 ): Promise<Session> {
+  const dirQuery = withDirectoryQuery(directory);
+
   if (preferredSessionId) {
     const preferred = await client.session.get({
       path: { id: preferredSessionId },
+      ...dirQuery,
     });
     if (preferred.data) {
       return preferred.data;
     }
   }
 
-  const sessions = await client.session.list();
+  const sessions = await client.session.list(dirQuery);
   const existing = sessions.data?.[0];
 
   if (existing) {
@@ -159,6 +164,7 @@ export async function ensureSession(
   }
 
   const created = await client.session.create({
+    ...dirQuery,
     body: { title: "Desk Escape" },
   });
 
@@ -169,9 +175,17 @@ export async function ensureSession(
   return created.data;
 }
 
-export async function fetchCurrentProject(client: OpencodeClient) {
-  const result = await client.project.current();
+export async function fetchCurrentProject(
+  client: OpencodeClient,
+  directory?: string | null,
+) {
+  const result = await client.project.current(withDirectoryQuery(directory));
   return result.data ?? null;
+}
+
+export async function fetchProjectList(client: OpencodeClient) {
+  const result = await client.project.list();
+  return result.data ?? [];
 }
 
 export function getWorktreeName(worktree?: string | null): string {

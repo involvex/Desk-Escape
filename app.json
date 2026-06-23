@@ -3,7 +3,9 @@
     "name": "Desk Escape",
     "slug": "desk-escape",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "owner": "Involvex",
+    "githubUrl": "https://github.com/involvex/Desk-Escape.git",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "desk-escape",
@@ -37,6 +39,7 @@
       "expo-system-ui",
       "expo-status-bar",
       "expo-web-browser",
+      "expo-screen-orientation",
       [
         "expo-splash-screen",
         {

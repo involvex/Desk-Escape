@@ -1,8 +1,7 @@
-import type { Session } from "@opencode-ai/sdk/client";
+import type { Project } from "@opencode-ai/sdk/client";
 import { useMemo } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -10,25 +9,21 @@ import {
   Text,
   View,
 } from "react-native";
-import { Plus, Trash2, X } from "lucide-react-native";
-import { useSessions } from "@/api/hooks";
+import { Check, X } from "lucide-react-native";
+import { getWorktreeName } from "@/api/client";
+import { useProjects } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 
-interface SessionPickerProps {
+interface ProjectPickerProps {
   visible: boolean;
   onClose: () => void;
 }
 
-function formatSessionTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
-}
-
-export function SessionPicker({ visible, onClose }: SessionPickerProps) {
+export function ProjectPicker({ visible, onClose }: ProjectPickerProps) {
   const { colors, spacing, typography } = useTheme();
-  const { sessionId, selectSession, createSession, deleteSession } =
-    useConnection();
-  const { data: sessions = [], isLoading, refetch } = useSessions();
+  const { activeDirectory, selectProject } = useConnection();
+  const { data: projects = [], isLoading } = useProjects();
 
   const styles = useMemo(
     () =>
@@ -61,21 +56,15 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           fontWeight: "700",
         },
         item: {
-          alignItems: "center",
           borderColor: colors.border,
           borderRadius: 12,
           borderWidth: 1,
-          flexDirection: "row",
-          gap: spacing.sm,
           marginBottom: spacing.sm,
           marginHorizontal: spacing.md,
           padding: spacing.md,
         },
         itemActive: {
           borderColor: colors.accent,
-        },
-        itemBody: {
-          flex: 1,
         },
         itemTitle: {
           color: colors.text,
@@ -87,56 +76,23 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           fontSize: typography.caption,
           marginTop: spacing.xs,
         },
-        createButton: {
-          alignItems: "center",
-          backgroundColor: colors.accentMuted,
-          borderColor: colors.accent,
-          borderRadius: 12,
-          borderWidth: 1,
-          flexDirection: "row",
-          gap: spacing.sm,
-          justifyContent: "center",
-          marginBottom: spacing.md,
-          marginHorizontal: spacing.md,
-          padding: spacing.md,
-        },
-        createText: {
-          color: colors.accent,
-          fontSize: typography.body,
-          fontWeight: "600",
-        },
         empty: {
           color: colors.textMuted,
           fontSize: typography.body,
           padding: spacing.lg,
           textAlign: "center",
         },
+        row: {
+          alignItems: "center",
+          flexDirection: "row",
+          justifyContent: "space-between",
+        },
       }),
     [colors, spacing, typography],
   );
 
-  const handleSelect = (session: Session) => {
-    void selectSession(session.id).then(() => onClose());
-  };
-
-  const handleCreate = () => {
-    void createSession().then(() => {
-      void refetch();
-      onClose();
-    });
-  };
-
-  const handleDelete = (session: Session) => {
-    Alert.alert("Delete session?", session.title || "Untitled session", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          void deleteSession(session.id).then(() => void refetch());
-        },
-      },
-    ]);
+  const handleSelect = (project: Project) => {
+    void selectProject(project.worktree).then(() => onClose());
   };
 
   return (
@@ -147,47 +103,40 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           style={styles.sheet}
         >
           <View style={styles.header}>
-            <Text style={styles.title}>Sessions</Text>
+            <Text style={styles.title}>Switch project</Text>
             <Pressable onPress={onClose}>
               <X color={colors.textMuted} size={20} />
             </Pressable>
           </View>
 
-          <Pressable onPress={handleCreate} style={styles.createButton}>
-            <Plus color={colors.accent} size={18} />
-            <Text style={styles.createText}>New session</Text>
-          </Pressable>
-
           {isLoading ? (
             <ActivityIndicator color={colors.accent} />
           ) : (
             <FlatList
-              data={sessions}
+              data={projects}
               keyExtractor={(item) => item.id}
               ListEmptyComponent={
-                <Text style={styles.empty}>No sessions on this host yet.</Text>
+                <Text style={styles.empty}>No projects on this host.</Text>
               }
               renderItem={({ item }) => {
-                const isActive = item.id === sessionId;
+                const isActive = item.worktree === activeDirectory;
                 return (
-                  <View
+                  <Pressable
+                    onPress={() => handleSelect(item)}
                     style={[styles.item, isActive ? styles.itemActive : null]}
                   >
-                    <Pressable
-                      onPress={() => handleSelect(item)}
-                      style={styles.itemBody}
-                    >
+                    <View style={styles.row}>
                       <Text style={styles.itemTitle}>
-                        {item.title || "Untitled session"}
+                        {getWorktreeName(item.worktree)}
                       </Text>
-                      <Text style={styles.itemMeta}>
-                        Updated {formatSessionTime(item.time.updated)}
-                      </Text>
-                    </Pressable>
-                    <Pressable onPress={() => handleDelete(item)}>
-                      <Trash2 color={colors.danger} size={18} />
-                    </Pressable>
-                  </View>
+                      {isActive ? (
+                        <Check color={colors.accent} size={18} />
+                      ) : null}
+                    </View>
+                    <Text numberOfLines={2} style={styles.itemMeta}>
+                      {item.worktree}
+                    </Text>
+                  </Pressable>
                 );
               }}
             />
