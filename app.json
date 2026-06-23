@@ -40,6 +40,7 @@
       "expo-status-bar",
       "expo-web-browser",
       "expo-screen-orientation",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {

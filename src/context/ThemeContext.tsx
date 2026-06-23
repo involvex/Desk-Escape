@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ThemeName } from "@/types/opencode";
+import type { FontScale, ThemeName } from "@/types/opencode";
 
 const THEME_STORAGE_KEY = "@desk-escape/theme";
 
@@ -62,7 +62,7 @@ const sharedSpacing: ThemeSpacing = {
   xl: 32,
 };
 
-const sharedTypography: ThemeTypography = {
+const baseTypography: ThemeTypography = {
   title: 20,
   subtitle: 16,
   body: 14,
@@ -70,13 +70,33 @@ const sharedTypography: ThemeTypography = {
   mono: 13,
 };
 
+function scaleTypography(scale: number): ThemeTypography {
+  return {
+    title: Math.round(baseTypography.title * scale),
+    subtitle: Math.round(baseTypography.subtitle * scale),
+    body: Math.round(baseTypography.body * scale),
+    caption: Math.round(baseTypography.caption * scale),
+    mono: Math.round(baseTypography.mono * scale),
+  };
+}
+
+const themeNames: ThemeName[] = [
+  "oled-black",
+  "dev-dark",
+  "dev-light",
+  "midnight-purple",
+  "solarized-dark",
+  "nord",
+  "high-contrast",
+];
+
 export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
   "oled-black": {
     name: "oled-black",
     label: "OLED Black",
     statusBar: "light",
     spacing: sharedSpacing,
-    typography: sharedTypography,
+    typography: baseTypography,
     colors: {
       background: "#000000",
       surface: "#0A0A0A",
@@ -98,7 +118,7 @@ export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
     label: "Dev Dark",
     statusBar: "light",
     spacing: sharedSpacing,
-    typography: sharedTypography,
+    typography: baseTypography,
     colors: {
       background: "#0D1117",
       surface: "#161B22",
@@ -120,7 +140,7 @@ export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
     label: "Dev Light",
     statusBar: "dark",
     spacing: sharedSpacing,
-    typography: sharedTypography,
+    typography: baseTypography,
     colors: {
       background: "#F6F8FA",
       surface: "#FFFFFF",
@@ -137,6 +157,94 @@ export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
       inputBackground: "#FFFFFF",
     },
   },
+  "midnight-purple": {
+    name: "midnight-purple",
+    label: "Midnight Purple",
+    statusBar: "light",
+    spacing: sharedSpacing,
+    typography: baseTypography,
+    colors: {
+      background: "#0B0614",
+      surface: "#140A22",
+      surfaceElevated: "#1C1030",
+      border: "#3B2A5C",
+      text: "#F3E8FF",
+      textMuted: "#C4B5FD",
+      accent: "#A78BFA",
+      accentMuted: "#4C1D95",
+      success: "#34D399",
+      danger: "#FB7185",
+      warning: "#FBBF24",
+      pillBackground: "rgba(20, 10, 34, 0.92)",
+      inputBackground: "#12081F",
+    },
+  },
+  "solarized-dark": {
+    name: "solarized-dark",
+    label: "Solarized Dark",
+    statusBar: "light",
+    spacing: sharedSpacing,
+    typography: baseTypography,
+    colors: {
+      background: "#002B36",
+      surface: "#073642",
+      surfaceElevated: "#0A4452",
+      border: "#586E75",
+      text: "#EEE8D5",
+      textMuted: "#93A1A1",
+      accent: "#2AA198",
+      accentMuted: "#134E4A",
+      success: "#859900",
+      danger: "#DC322F",
+      warning: "#B58900",
+      pillBackground: "rgba(7, 54, 66, 0.92)",
+      inputBackground: "#002B36",
+    },
+  },
+  nord: {
+    name: "nord",
+    label: "Nord",
+    statusBar: "light",
+    spacing: sharedSpacing,
+    typography: baseTypography,
+    colors: {
+      background: "#2E3440",
+      surface: "#3B4252",
+      surfaceElevated: "#434C5E",
+      border: "#4C566A",
+      text: "#ECEFF4",
+      textMuted: "#D8DEE9",
+      accent: "#88C0D0",
+      accentMuted: "#2E4A59",
+      success: "#A3BE8C",
+      danger: "#BF616A",
+      warning: "#EBCB8B",
+      pillBackground: "rgba(59, 66, 82, 0.92)",
+      inputBackground: "#2E3440",
+    },
+  },
+  "high-contrast": {
+    name: "high-contrast",
+    label: "High Contrast",
+    statusBar: "light",
+    spacing: sharedSpacing,
+    typography: baseTypography,
+    colors: {
+      background: "#000000",
+      surface: "#111111",
+      surfaceElevated: "#1A1A1A",
+      border: "#FFFFFF",
+      text: "#FFFFFF",
+      textMuted: "#D4D4D4",
+      accent: "#FFFF00",
+      accentMuted: "#3D3D00",
+      success: "#00FF66",
+      danger: "#FF4444",
+      warning: "#FFAA00",
+      pillBackground: "rgba(0, 0, 0, 0.95)",
+      inputBackground: "#000000",
+    },
+  },
 };
 
 interface ThemeContextValue {
@@ -146,22 +254,36 @@ interface ThemeContextValue {
   colors: ThemeColors;
   spacing: ThemeSpacing;
   typography: ThemeTypography;
+  fontScale: FontScale;
+  setFontScale: (scale: FontScale) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
+const FONT_SCALE_KEY = "@desk-escape/font-scale";
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeName, setThemeNameState] = useState<ThemeName>("oled-black");
+  const [fontScale, setFontScaleState] = useState<FontScale>(1);
 
   useEffect(() => {
     void (async () => {
-      const stored = await AsyncStorage.getItem(THEME_STORAGE_KEY);
+      const [storedTheme, storedScale] = await Promise.all([
+        AsyncStorage.getItem(THEME_STORAGE_KEY),
+        AsyncStorage.getItem(FONT_SCALE_KEY),
+      ]);
+
+      if (storedTheme && themeNames.includes(storedTheme as ThemeName)) {
+        setThemeNameState(storedTheme as ThemeName);
+      }
+
       if (
-        stored === "oled-black" ||
-        stored === "dev-dark" ||
-        stored === "dev-light"
+        storedScale === "0.85" ||
+        storedScale === "1" ||
+        storedScale === "1.15" ||
+        storedScale === "1.3"
       ) {
-        setThemeNameState(stored);
+        setFontScaleState(Number(storedScale) as FontScale);
       }
     })();
   }, []);
@@ -171,7 +293,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.setItem(THEME_STORAGE_KEY, name);
   }, []);
 
+  const setFontScale = useCallback((scale: FontScale) => {
+    setFontScaleState(scale);
+    void AsyncStorage.setItem(FONT_SCALE_KEY, String(scale));
+  }, []);
+
   const theme = themeDefinitions[themeName];
+  const scaledTypography = useMemo(
+    () => scaleTypography(fontScale),
+    [fontScale],
+  );
 
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(theme.colors.background);
@@ -180,13 +311,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       themeName,
-      theme,
+      theme: { ...theme, typography: scaledTypography },
       setThemeName,
       colors: theme.colors,
       spacing: theme.spacing,
-      typography: theme.typography,
+      typography: scaledTypography,
+      fontScale,
+      setFontScale,
     }),
-    [theme, themeName, setThemeName],
+    [fontScale, scaledTypography, setFontScale, setThemeName, theme, themeName],
   );
 
   return (

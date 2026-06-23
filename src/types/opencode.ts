@@ -9,7 +9,16 @@ import type {
 
 export type { Agent, Message, Part, Project, Session, ToolPart };
 
-export type ThemeName = "oled-black" | "dev-dark" | "dev-light";
+export type ThemeName =
+  | "oled-black"
+  | "dev-dark"
+  | "dev-light"
+  | "midnight-purple"
+  | "solarized-dark"
+  | "nord"
+  | "high-contrast";
+
+export type FontScale = 0.85 | 1 | 1.15 | 1.3;
 
 export type OrientationMode = "portrait" | "auto" | "landscape";
 
@@ -76,4 +85,16 @@ export interface DiffHunk {
 export interface FileDiffEntry {
   path: string;
   hunks: DiffHunk[];
+}
+
+export interface ConnectionDraft {
+  target: string;
+  useAuth: boolean;
+  username: string;
+}
+
+export interface PromptPreset {
+  id: string;
+  label: string;
+  text: string;
 }

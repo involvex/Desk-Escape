@@ -25,10 +25,12 @@ import type {
   ConnectionStatus,
   ContextAttachment,
   BasicAuthCredential,
+  ConnectionDraft,
   StoredConnectionConfig,
 } from "@/types/opencode";
 
 const CONFIG_STORAGE_KEY = "@desk-escape/connection-config";
+const CONNECTION_DRAFT_KEY = "@desk-escape/connection-draft";
 const RECENT_HOSTS_KEY = "@desk-escape/recent-hosts";
 const PASSWORD_KEY_PREFIX = "@desk-escape/password:";
 const SESSION_KEY_PREFIX = "@desk-escape/session:";
@@ -112,6 +114,38 @@ async function deletePassword(baseUrl: string): Promise<void> {
     await SecureStore.deleteItemAsync(`${PASSWORD_KEY_PREFIX}${baseUrl}`);
   } catch {
     // Ignore missing secure entries.
+  }
+}
+
+export async function loadConnectionDraft(): Promise<ConnectionDraft | null> {
+  const stored = await AsyncStorage.getItem(CONNECTION_DRAFT_KEY);
+  if (!stored) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(stored) as ConnectionDraft;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveConnectionDraft(
+  draft: ConnectionDraft,
+): Promise<void> {
+  await AsyncStorage.setItem(CONNECTION_DRAFT_KEY, JSON.stringify(draft));
+}
+
+export async function loadStoredConnectionConfig(): Promise<StoredConnectionConfig | null> {
+  const stored = await AsyncStorage.getItem(CONFIG_STORAGE_KEY);
+  if (!stored) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(stored) as StoredConnectionConfig;
+  } catch {
+    return null;
   }
 }
 

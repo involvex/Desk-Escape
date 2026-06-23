@@ -1,14 +1,7 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useMemo, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -27,7 +20,9 @@ import {
   type PaletteAction,
 } from "@/components/CommandPalette";
 import { FileDrawer } from "@/components/FileDrawer";
+import { LandscapeFileRail } from "@/components/LandscapeFileRail";
 import { PanelTabs } from "@/components/PanelTabs";
+import { PermissionBanner } from "@/components/PermissionBanner";
 import { ProjectPicker } from "@/components/ProjectPicker";
 import { SessionPicker } from "@/components/SessionPicker";
 import { TerminalPanel } from "@/components/TerminalPanel";
@@ -109,6 +104,17 @@ export function WorkspaceScreen() {
           width: 8,
         },
         content: {
+          flex: 1,
+        },
+        landscapeRow: {
+          flex: 1,
+          flexDirection: "row",
+        },
+        landscapeRail: {
+          maxWidth: 320,
+          width: "35%",
+        },
+        landscapeMain: {
           flex: 1,
         },
         overflowMenu: {
@@ -225,6 +231,18 @@ export function WorkspaceScreen() {
         : colors.danger;
 
   const showToolbar = activePanel === "agent";
+  const chromeInset = showToolbar ? 100 : 56;
+  const useLandscapeSplit = isLandscape && activePanel === "agent";
+
+  const agentChat = (
+    <AgentChat
+      chromeInset={chromeInset}
+      onCreateSession={() => void createSession()}
+      onOpenPalette={() => setPaletteOpen(true)}
+      onSlashDraftChange={setSlashDraft}
+      slashDraft={slashDraft}
+    />
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -300,27 +318,27 @@ export function WorkspaceScreen() {
         />
       ) : null}
 
+      <PermissionBanner />
+
       <View style={styles.content}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-          style={styles.content}
-        >
-          {activePanel === "terminal" ? (
-            <TerminalPanel />
-          ) : (
-            <GestureDetector gesture={panGesture}>
-              <View style={styles.content}>
-                <AgentChat
-                  onOpenPalette={() => setPaletteOpen(true)}
-                  onCreateSession={() => void createSession()}
-                  slashDraft={slashDraft}
-                  onSlashDraftChange={setSlashDraft}
-                />
-              </View>
-            </GestureDetector>
-          )}
-        </KeyboardAvoidingView>
+        {activePanel === "terminal" ? (
+          <TerminalPanel />
+        ) : useLandscapeSplit ? (
+          <View style={styles.landscapeRow}>
+            <View style={styles.landscapeRail}>
+              <LandscapeFileRail />
+            </View>
+            <View style={styles.landscapeMain}>
+              <GestureDetector gesture={panGesture}>
+                {agentChat}
+              </GestureDetector>
+            </View>
+          </View>
+        ) : (
+          <GestureDetector gesture={panGesture}>
+            <View style={styles.content}>{agentChat}</View>
+          </GestureDetector>
+        )}
 
         <FileDrawer
           onClose={() => {

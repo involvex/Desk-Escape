@@ -1,6 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -11,12 +11,18 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Check, Lock, Server, Wifi, X } from "lucide-react-native";
-import { buildConnectionConfig } from "@/api/client";
-import { readStoredPassword, useConnection } from "@/context/ConnectionContext";
+import { Check, Lock, Save, Server, Wifi, X } from "lucide-react-native";
+import { buildConnectionConfig, configToTargetUrl } from "@/api/client";
+import {
+  loadConnectionDraft,
+  loadStoredConnectionConfig,
+  readStoredPassword,
+  saveConnectionDraft,
+  useConnection,
+} from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
-import type { TestConnectionStatus } from "@/types/opencode";
+import type { ConnectionDraft, TestConnectionStatus } from "@/types/opencode";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "Connection">;
 
@@ -33,6 +39,87 @@ export function ConnectionScreen() {
   const [testStatus, setTestStatus] = useState<TestConnectionStatus>("idle");
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const draftPayload = useMemo(
+    (): ConnectionDraft => ({
+      target,
+      useAuth,
+      username,
+    }),
+    [target, useAuth, username],
+  );
+
+  useEffect(() => {
+    void (async () => {
+      const draft = await loadConnectionDraft();
+      if (draft) {
+        setTarget(draft.target);
+        setUseAuth(draft.useAuth);
+        setUsername(draft.username);
+        if (draft.useAuth) {
+          const storedPassword = await readStoredPassword(
+            buildConnectionConfig(draft.target, {
+              username: draft.username,
+              useAuth: draft.useAuth,
+            }).baseUrl,
+          );
+          if (storedPassword) {
+            setPassword(storedPassword);
+          }
+        }
+        return;
+      }
+
+      const stored = await loadStoredConnectionConfig();
+      if (stored) {
+        setTarget(configToTargetUrl(stored));
+        setUseAuth(stored.useAuth);
+        setUsername(stored.username);
+        if (stored.useAuth) {
+          const storedPassword = await readStoredPassword(stored.baseUrl);
+          if (storedPassword) {
+            setPassword(storedPassword);
+          }
+        }
+        return;
+      }
+
+      if (recentHosts[0]) {
+        setTarget(recentHosts[0].baseUrl);
+        setUseAuth(recentHosts[0].useAuth);
+        setUsername(recentHosts[0].username);
+      }
+    })();
+  }, [recentHosts]);
+
+  const persistDraft = useCallback(
+    async (showFeedback = false) => {
+      await saveConnectionDraft(draftPayload);
+      if (showFeedback) {
+        setSaveMessage("Connection settings saved.");
+        setTimeout(() => setSaveMessage(null), 2000);
+      }
+    },
+    [draftPayload],
+  );
+
+  useEffect(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+    }
+
+    saveTimer.current = setTimeout(() => {
+      void persistDraft();
+    }, 600);
+
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+      }
+    };
+  }, [persistDraft]);
 
   const styles = useMemo(
     () =>
@@ -144,6 +231,11 @@ export function ConnectionScreen() {
           fontSize: typography.caption,
           marginBottom: spacing.md,
         },
+        savedText: {
+          color: colors.success,
+          fontSize: typography.caption,
+          marginBottom: spacing.md,
+        },
       }),
     [colors, spacing, typography],
   );
@@ -186,22 +278,31 @@ export function ConnectionScreen() {
     try {
       const config = buildConfig();
       await connect(config, password);
+      await persistDraft();
       navigation.replace("Workspace");
     } catch {
       // Error state is handled in context.
     } finally {
       setIsConnecting(false);
     }
-  }, [buildConfig, connect, navigation, password]);
+  }, [buildConfig, connect, navigation, password, persistDraft]);
 
-  const handleRecentPress = useCallback(async (baseUrl: string) => {
-    setTarget(baseUrl);
-    const storedPassword = await readStoredPassword(baseUrl);
-    if (storedPassword) {
-      setUseAuth(true);
-      setPassword(storedPassword);
-    }
-  }, []);
+  const handleRecentPress = useCallback(
+    async (baseUrl: string) => {
+      setTarget(baseUrl);
+      const storedPassword = await readStoredPassword(baseUrl);
+      if (storedPassword) {
+        setUseAuth(true);
+        setPassword(storedPassword);
+      }
+      await saveConnectionDraft({
+        target: baseUrl,
+        useAuth: Boolean(storedPassword),
+        username,
+      });
+    },
+    [username],
+  );
 
   const statusIcon = useMemo(() => {
     switch (testStatus) {
@@ -286,6 +387,8 @@ export function ConnectionScreen() {
         </View>
       </View>
 
+      {saveMessage ? <Text style={styles.savedText}>{saveMessage}</Text> : null}
+
       {errorMessage ? (
         <Text style={styles.errorText}>{errorMessage}</Text>
       ) : null}
@@ -293,6 +396,16 @@ export function ConnectionScreen() {
       <Pressable onPress={() => void handleTest()} style={styles.button}>
         <Server color="#04111A" size={18} />
         <Text style={styles.buttonText}>Test Connection</Text>
+      </Pressable>
+
+      <Pressable
+        onPress={() => void persistDraft(true)}
+        style={[styles.button, styles.buttonSecondary]}
+      >
+        <Save color={colors.text} size={18} />
+        <Text style={[styles.buttonText, styles.buttonSecondaryText]}>
+          Save
+        </Text>
       </Pressable>
 
       <Pressable

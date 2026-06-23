@@ -13,10 +13,11 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { ChevronLeft, File, Folder } from "lucide-react-native";
+import { ChevronLeft } from "lucide-react-native";
 import { useFileList } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
+import { getFileIcon } from "@/utils/file-icon";
 
 interface FileDrawerProps {
   visible: boolean;
@@ -137,7 +138,7 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
               </Text>
             }
             renderItem={({ item }) => {
-              const Icon = item.type === "directory" ? Folder : File;
+              const Icon = getFileIcon(item.name, item.type);
 
               return (
                 <Pressable

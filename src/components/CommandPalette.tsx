@@ -247,4 +247,8 @@ export const themeCycleOrder: ThemeName[] = [
   "oled-black",
   "dev-dark",
   "dev-light",
+  "midnight-purple",
+  "solarized-dark",
+  "nord",
+  "high-contrast",
 ];

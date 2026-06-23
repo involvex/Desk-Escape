@@ -196,3 +196,7 @@ export function getWorktreeName(worktree?: string | null): string {
   const segments = worktree.replace(/\\/g, "/").split("/");
   return segments[segments.length - 1] || worktree;
 }
+
+export function configToTargetUrl(config: ConnectionConfig): string {
+  return config.baseUrl;
+}

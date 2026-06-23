@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Command, Send } from "lucide-react-native";
 import {
   useCommands,
@@ -16,6 +17,7 @@ import {
   useSessionMessageStream,
   useSessionMessages,
 } from "@/api/hooks";
+import { PromptPresetBar } from "@/components/PromptPresetBar";
 import {
   parseSlashInput,
   SlashCommandMenu,
@@ -25,6 +27,7 @@ import { useTheme } from "@/context/ThemeContext";
 import type { MessageWithParts, Part, ToolPart } from "@/types/opencode";
 
 interface AgentChatProps {
+  chromeInset?: number;
   onOpenPalette?: () => void;
   onCreateSession?: () => void;
   slashDraft?: string;
@@ -60,6 +63,7 @@ function formatToolLabel(part: ToolPart): string {
 }
 
 export function AgentChat({
+  chromeInset = 0,
   onOpenPalette,
   onCreateSession,
   slashDraft,
@@ -141,6 +145,9 @@ export function AgentChat({
           color: colors.textMuted,
           fontSize: typography.caption,
         },
+        composerWrap: {
+          paddingBottom: spacing.sm,
+        },
         composer: {
           alignItems: "flex-end",
           backgroundColor: colors.surface,
@@ -149,7 +156,6 @@ export function AgentChat({
           borderWidth: 1,
           flexDirection: "row",
           gap: spacing.sm,
-          marginBottom: spacing.sm,
           padding: spacing.sm,
         },
         input: {
@@ -220,17 +226,17 @@ export function AgentChat({
     [colors, spacing, typography],
   );
 
-  const handleSend = () => {
-    const text = draft.trim();
-    if (!text || sendPrompt.isPending || executeCommand.isPending) {
+  const submitText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || sendPrompt.isPending || executeCommand.isPending) {
       return;
     }
 
     setDraft("");
     Keyboard.dismiss();
 
-    if (text.startsWith("/")) {
-      const { name, args } = parseSlashInput(text);
+    if (trimmed.startsWith("/")) {
+      const { name, args } = parseSlashInput(trimmed);
       if (!name) {
         return;
       }
@@ -238,7 +244,19 @@ export function AgentChat({
       return;
     }
 
-    void sendPrompt.mutateAsync(text);
+    void sendPrompt.mutateAsync(trimmed);
+  };
+
+  const handleSend = () => {
+    submitText(draft);
+  };
+
+  const handlePresetSelect = (text: string, sendImmediately: boolean) => {
+    if (sendImmediately) {
+      submitText(text);
+      return;
+    }
+    setDraft(text);
   };
 
   const handleSlashSelect = (command: { name: string }) => {
@@ -272,7 +290,11 @@ export function AgentChat({
   const isPending = sendPrompt.isPending || executeCommand.isPending;
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      behavior="padding"
+      keyboardVerticalOffset={chromeInset}
+      style={styles.container}
+    >
       {contextAttachments.length > 0 ? (
         <View style={styles.attachments}>
           {contextAttachments.map((attachment) => (
@@ -326,33 +348,35 @@ export function AgentChat({
         style={styles.list}
       />
 
-      <SlashCommandMenu
-        commands={commands}
-        onSelect={handleSlashSelect}
-        query={draft}
-      />
-
-      <View style={styles.composer}>
-        <TextInput
-          multiline
-          onChangeText={setDraft}
-          placeholder="Message or /command..."
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          value={draft}
+      <View style={styles.composerWrap}>
+        <SlashCommandMenu
+          commands={commands}
+          onSelect={handleSlashSelect}
+          query={draft}
         />
-        <Pressable
-          disabled={isPending}
-          onPress={handleSend}
-          style={styles.sendButton}
-        >
-          {draft.startsWith("/") ? (
-            <Command color="#04111A" size={18} />
-          ) : (
-            <Send color="#04111A" size={18} />
-          )}
-        </Pressable>
+        <PromptPresetBar onSelect={handlePresetSelect} />
+        <View style={styles.composer}>
+          <TextInput
+            multiline
+            onChangeText={setDraft}
+            placeholder="Message or /command..."
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            value={draft}
+          />
+          <Pressable
+            disabled={isPending}
+            onPress={handleSend}
+            style={styles.sendButton}
+          >
+            {draft.startsWith("/") ? (
+              <Command color="#04111A" size={18} />
+            ) : (
+              <Send color="#04111A" size={18} />
+            )}
+          </Pressable>
+        </View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

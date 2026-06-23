@@ -6,25 +6,34 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ChevronLeft, ChevronRight } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react-native";
 import { useOpenCodeConfig, useUpdateConfig } from "@/api/hooks";
 import { useOrientation } from "@/context/OrientationContext";
-import { useTheme } from "@/context/ThemeContext";
+import {
+  DEFAULT_PROMPT_PRESETS,
+  usePreferences,
+} from "@/context/PreferencesContext";
+import { themeDefinitions, useTheme } from "@/context/ThemeContext";
+import { ensureNotificationPermissions } from "@/services/notifications";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
-import type { OrientationMode, ThemeName } from "@/types/opencode";
+import type {
+  FontScale,
+  OrientationMode,
+  PromptPreset,
+} from "@/types/opencode";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
-const themeOptions: { id: ThemeName; label: string }[] = [
-  { id: "oled-black", label: "OLED Black" },
-  { id: "dev-dark", label: "Dev Dark" },
-  { id: "dev-light", label: "Dev Light" },
-];
+const themeOptions = Object.values(themeDefinitions).map((theme) => ({
+  id: theme.name,
+  label: theme.label,
+}));
 
 const orientationOptions: { id: OrientationMode; label: string }[] = [
   { id: "portrait", label: "Portrait only" },
@@ -32,15 +41,40 @@ const orientationOptions: { id: OrientationMode; label: string }[] = [
   { id: "landscape", label: "Landscape preferred" },
 ];
 
+const fontScaleOptions: { id: FontScale; label: string }[] = [
+  { id: 0.85, label: "Small" },
+  { id: 1, label: "Default" },
+  { id: 1.15, label: "Large" },
+  { id: 1.3, label: "XL" },
+];
+
 export function SettingsScreen({ navigation }: Props) {
-  const { colors, spacing, typography, themeName, setThemeName } = useTheme();
+  const {
+    colors,
+    spacing,
+    typography,
+    themeName,
+    setThemeName,
+    fontScale,
+    setFontScale,
+  } = useTheme();
   const { mode: orientationMode, setMode: setOrientationMode } =
     useOrientation();
+  const {
+    autoApprovePermissions,
+    setAutoApprovePermissions,
+    promptPresets,
+    setPromptPresets,
+    promptPresetTapToSend,
+    setPromptPresetTapToSend,
+  } = usePreferences();
   const { data: config, isLoading } = useOpenCodeConfig();
   const updateConfig = useUpdateConfig();
   const [jsonDraft, setJsonDraft] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [newPresetLabel, setNewPresetLabel] = useState("");
+  const [newPresetText, setNewPresetText] = useState("");
 
   const styles = useMemo(
     () =>
@@ -92,6 +126,7 @@ export function SettingsScreen({ navigation }: Props) {
         },
         rowLabel: {
           color: colors.text,
+          flex: 1,
           fontSize: typography.body,
         },
         chipRow: {
@@ -150,6 +185,46 @@ export function SettingsScreen({ navigation }: Props) {
           fontSize: typography.caption,
           marginTop: spacing.xs,
         },
+        input: {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderRadius: 12,
+          borderWidth: 1,
+          color: colors.text,
+          fontSize: typography.body,
+          marginBottom: spacing.sm,
+          padding: spacing.md,
+        },
+        presetItem: {
+          alignItems: "center",
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderRadius: 12,
+          borderWidth: 1,
+          flexDirection: "row",
+          gap: spacing.sm,
+          marginBottom: spacing.sm,
+          padding: spacing.md,
+        },
+        presetBody: {
+          flex: 1,
+        },
+        presetLabel: {
+          color: colors.text,
+          fontSize: typography.body,
+          fontWeight: "600",
+        },
+        presetText: {
+          color: colors.textMuted,
+          fontSize: typography.caption,
+          marginTop: 2,
+        },
+        linkButton: {
+          color: colors.accent,
+          fontSize: typography.caption,
+          fontWeight: "600",
+          marginBottom: spacing.sm,
+        },
       }),
     [colors, spacing, typography],
   );
@@ -186,6 +261,35 @@ export function SettingsScreen({ navigation }: Props) {
     }
   };
 
+  const handleAddPreset = () => {
+    const label = newPresetLabel.trim();
+    const text = newPresetText.trim();
+    if (!label || !text) {
+      return;
+    }
+
+    const next: PromptPreset = {
+      id: `${label.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
+      label,
+      text,
+    };
+    setPromptPresets([...promptPresets, next]);
+    setNewPresetLabel("");
+    setNewPresetText("");
+  };
+
+  const handleRemovePreset = (id: string) => {
+    setPromptPresets(promptPresets.filter((preset) => preset.id !== id));
+  };
+
+  const handleResetPresets = () => {
+    setPromptPresets(DEFAULT_PROMPT_PRESETS);
+  };
+
+  const handleNotificationPermission = () => {
+    void ensureNotificationPermissions();
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -218,6 +322,24 @@ export function SettingsScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Font size</Text>
+            <View style={styles.chipRow}>
+              {fontScaleOptions.map((option) => (
+                <Pressable
+                  key={option.id}
+                  onPress={() => setFontScale(option.id)}
+                  style={[
+                    styles.chip,
+                    fontScale === option.id ? styles.chipActive : null,
+                  ]}
+                >
+                  <Text style={styles.chipText}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
             <Text style={styles.sectionTitle}>Orientation</Text>
             <View style={styles.chipRow}>
               {orientationOptions.map((option) => (
@@ -233,6 +355,77 @@ export function SettingsScreen({ navigation }: Props) {
                 </Pressable>
               ))}
             </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Agent permissions</Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Auto-approve all requests</Text>
+              <Switch
+                onValueChange={setAutoApprovePermissions}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={autoApprovePermissions}
+              />
+            </View>
+            <Pressable
+              onPress={handleNotificationPermission}
+              style={styles.row}
+            >
+              <Text style={styles.rowLabel}>
+                Enable permission notifications
+              </Text>
+              <ChevronRight color={colors.textMuted} size={18} />
+            </Pressable>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Prompt presets</Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>
+                Tap preset to send immediately
+              </Text>
+              <Switch
+                onValueChange={setPromptPresetTapToSend}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={promptPresetTapToSend}
+              />
+            </View>
+            <Pressable onPress={handleResetPresets}>
+              <Text style={styles.linkButton}>Reset to defaults</Text>
+            </Pressable>
+            {promptPresets.map((preset) => (
+              <View key={preset.id} style={styles.presetItem}>
+                <View style={styles.presetBody}>
+                  <Text style={styles.presetLabel}>{preset.label}</Text>
+                  <Text numberOfLines={2} style={styles.presetText}>
+                    {preset.text}
+                  </Text>
+                </View>
+                <Pressable onPress={() => handleRemovePreset(preset.id)}>
+                  <Trash2 color={colors.danger} size={18} />
+                </Pressable>
+              </View>
+            ))}
+            <TextInput
+              onChangeText={setNewPresetLabel}
+              placeholder="Preset label"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              value={newPresetLabel}
+            />
+            <TextInput
+              multiline
+              onChangeText={setNewPresetText}
+              placeholder="Preset prompt text"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              value={newPresetText}
+            />
+            <Pressable onPress={handleAddPreset} style={styles.saveButton}>
+              <Text style={styles.saveText}>Add preset</Text>
+            </Pressable>
           </View>
 
           <View style={styles.section}>
