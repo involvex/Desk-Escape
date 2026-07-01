@@ -67,6 +67,8 @@ export function SettingsScreen({ navigation }: Props) {
     setPromptPresets,
     promptPresetTapToSend,
     setPromptPresetTapToSend,
+    collapseToolCalls,
+    setCollapseToolCalls,
   } = usePreferences();
   const { data: config, isLoading } = useOpenCodeConfig();
   const updateConfig = useUpdateConfig();
@@ -354,6 +356,19 @@ export function SettingsScreen({ navigation }: Props) {
                   <Text style={styles.chipText}>{option.label}</Text>
                 </Pressable>
               ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Agent chat</Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Expand tool calls by default</Text>
+              <Switch
+                onValueChange={(expanded) => setCollapseToolCalls(!expanded)}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={!collapseToolCalls}
+              />
             </View>
           </View>
 

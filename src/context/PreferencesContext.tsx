@@ -13,6 +13,7 @@ import type { PromptPreset } from "@/types/opencode";
 const AUTO_APPROVE_KEY = "@desk-escape/auto-approve-permissions";
 const PROMPT_PRESETS_KEY = "@desk-escape/prompt-presets";
 const PRESET_TAP_SEND_KEY = "@desk-escape/prompt-preset-tap-send";
+const COLLAPSE_TOOL_CALLS_KEY = "@desk-escape/collapse-tool-calls";
 
 export const DEFAULT_PROMPT_PRESETS: PromptPreset[] = [
   {
@@ -49,6 +50,8 @@ interface PreferencesContextValue {
   setPromptPresets: (presets: PromptPreset[]) => void;
   promptPresetTapToSend: boolean;
   setPromptPresetTapToSend: (enabled: boolean) => void;
+  collapseToolCalls: boolean;
+  setCollapseToolCalls: (collapsed: boolean) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -62,13 +65,15 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   );
   const [promptPresetTapToSend, setPromptPresetTapToSendState] =
     useState(false);
+  const [collapseToolCalls, setCollapseToolCallsState] = useState(true);
 
   useEffect(() => {
     void (async () => {
-      const [autoApprove, presets, tapSend] = await Promise.all([
+      const [autoApprove, presets, tapSend, collapseTools] = await Promise.all([
         AsyncStorage.getItem(AUTO_APPROVE_KEY),
         AsyncStorage.getItem(PROMPT_PRESETS_KEY),
         AsyncStorage.getItem(PRESET_TAP_SEND_KEY),
+        AsyncStorage.getItem(COLLAPSE_TOOL_CALLS_KEY),
       ]);
 
       if (autoApprove === "true") {
@@ -83,6 +88,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       }
       if (tapSend === "true") {
         setPromptPresetTapToSendState(true);
+      }
+      if (collapseTools === "false") {
+        setCollapseToolCallsState(false);
       }
     })();
   }, []);
@@ -102,6 +110,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.setItem(PRESET_TAP_SEND_KEY, String(enabled));
   }, []);
 
+  const setCollapseToolCalls = useCallback((collapsed: boolean) => {
+    setCollapseToolCallsState(collapsed);
+    void AsyncStorage.setItem(COLLAPSE_TOOL_CALLS_KEY, String(collapsed));
+  }, []);
+
   const value = useMemo(
     () => ({
       autoApprovePermissions,
@@ -110,12 +123,16 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setPromptPresets,
       promptPresetTapToSend,
       setPromptPresetTapToSend,
+      collapseToolCalls,
+      setCollapseToolCalls,
     }),
     [
       autoApprovePermissions,
+      collapseToolCalls,
       promptPresetTapToSend,
       promptPresets,
       setAutoApprovePermissions,
+      setCollapseToolCalls,
       setPromptPresetTapToSend,
       setPromptPresets,
     ],

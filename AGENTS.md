@@ -13,10 +13,12 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 - Use Bun for installs and scripts (`bun install`, `bun run`, `bunx`).
 - Do not git commit or push unless explicitly requested.
 - Prefer `client.event.subscribe()` for live agent chat streaming instead of polling.
+- Do not adopt Expo Router or `expo-router/unstable-split-view`; use React Navigation with custom landscape split (`LandscapeFileRail`).
+- Default agent chat tool/thinking blocks to collapsed; Settings may offer expand-by-default toggle.
 
 ## Learned Workspace Facts
 
-- Mobile-first OpenCode client: connects remotely via `@opencode-ai/sdk` `createOpencodeClient({ baseUrl })` — no local Nitro proxy.
+- Mobile-first OpenCode client: connects remotely via `@opencode-ai/sdk/client` v1 `createOpencodeClient({ baseUrl })` — no local Nitro proxy.
 - SDK patterns reference: sibling `opencode-portal` `apps/web` (`createOpencodeClient`, session/file APIs).
 - Stable native stack: Expo `~56.0.12`, `react-native` `0.85.3`, `reanimated` `4.3.1`, `worklets` `0.8.3`, `async-storage` `2.2.0`.
 - Pin `react-native-gesture-handler` to exact `2.31.1` (no `^` or `~`); `2.31.2` regresses APIs; `3.x` fails Windows MAX_PATH at the current repo path.
@@ -26,3 +28,5 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 - `android.enableLongPaths=true` in `gradle.properties`.
 - Dev tooling: ESLint 10, TypeScript 6, `eslint-config-expo` flat config (`eslint.config.mjs`).
 - Before native dependency bumps run `bunx expo install --check`; do not re-add `expo.install.exclude` overrides without intentional testing.
+- Navigation: React Navigation native stack (`RootNavigator`), not Expo Router.
+- No SDK `project.switch`; multi-project context via optional `directory` query on API calls or client recreation.

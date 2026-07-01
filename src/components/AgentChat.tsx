@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Keyboard,
+  LayoutChangeEvent,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -17,14 +20,22 @@ import {
   useSessionMessageStream,
   useSessionMessages,
 } from "@/api/hooks";
+import { ChatMessageBubble } from "@/components/chat/ChatMessageBubble";
+import {
+  ChatScrollControls,
+  type ChatScrollMetrics,
+  SCROLL_EDGE_THRESHOLD,
+} from "@/components/chat/ChatScrollControls";
+import { ChatScrollBar } from "@/components/chat/ChatScrollBar";
 import { PromptPresetBar } from "@/components/PromptPresetBar";
 import {
   parseSlashInput,
   SlashCommandMenu,
 } from "@/components/SlashCommandMenu";
 import { useConnection } from "@/context/ConnectionContext";
+import { usePreferences } from "@/context/PreferencesContext";
 import { useTheme } from "@/context/ThemeContext";
-import type { MessageWithParts, Part, ToolPart } from "@/types/opencode";
+import type { MessageWithParts } from "@/types/opencode";
 
 interface AgentChatProps {
   chromeInset?: number;
@@ -34,33 +45,11 @@ interface AgentChatProps {
   onSlashDraftChange?: (value: string) => void;
 }
 
-function isToolPart(part: Part): part is ToolPart {
-  return part.type === "tool";
-}
-
-function getMessageText(parts: Part[]): string {
-  return parts
-    .filter((part) => part.type === "text")
-    .map((part) => ("text" in part ? part.text : ""))
-    .join("\n")
-    .trim();
-}
-
-function formatToolLabel(part: ToolPart): string {
-  const input = (part.state?.input ?? {}) as Record<string, unknown>;
-  const toolName = part.tool?.toLowerCase() ?? "tool";
-
-  switch (toolName) {
-    case "read":
-      return `read ${String(input.filePath ?? input.file ?? "")}`;
-    case "edit":
-      return `edit ${String(input.filePath ?? input.file ?? "")}`;
-    case "bash":
-      return `bash ${String(input.command ?? input.cmd ?? "").slice(0, 48)}`;
-    default:
-      return toolName;
-  }
-}
+const INITIAL_SCROLL_METRICS: ChatScrollMetrics = {
+  contentHeight: 0,
+  layoutHeight: 0,
+  offsetY: 0,
+};
 
 export function AgentChat({
   chromeInset = 0,
@@ -70,12 +59,25 @@ export function AgentChat({
   onSlashDraftChange,
 }: AgentChatProps) {
   const { colors, spacing, typography } = useTheme();
+  const { collapseToolCalls } = usePreferences();
   const { sessionId, contextAttachments } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
   const { data: commands = [] } = useCommands();
   const sendPrompt = useSendPrompt(sessionId);
   const executeCommand = useExecuteCommand(sessionId);
   const [localDraft, setLocalDraft] = useState("");
+  const [scrollMetrics, setScrollMetrics] = useState<ChatScrollMetrics>(
+    INITIAL_SCROLL_METRICS,
+  );
+  const [sessionCollapseMode, setSessionCollapseMode] = useState<
+    "default" | "collapsed" | "expanded"
+  >("default");
+  const listRef = useRef<FlatList<MessageWithParts>>(null);
+  const scrollMetricsRef = useRef(scrollMetrics);
+
+  useEffect(() => {
+    scrollMetricsRef.current = scrollMetrics;
+  }, [scrollMetrics]);
   const isControlled = onSlashDraftChange !== undefined;
   const draft = isControlled ? (slashDraft ?? "") : localDraft;
   const setDraft = isControlled ? onSlashDraftChange : setLocalDraft;
@@ -83,6 +85,16 @@ export function AgentChat({
   useSessionMessageStream(sessionId);
 
   const hintCommand = commands[0]?.name ?? "help";
+  const lastMessageId = messages.at(-1)?.info.id;
+
+  const defaultCollapsed =
+    sessionCollapseMode === "collapsed"
+      ? true
+      : sessionCollapseMode === "expanded"
+        ? false
+        : collapseToolCalls;
+
+  const collapseResetKey = `${sessionCollapseMode}-${collapseToolCalls}`;
 
   const styles = useMemo(
     () =>
@@ -92,6 +104,10 @@ export function AgentChat({
           paddingHorizontal: spacing.md,
           paddingTop: spacing.md,
         },
+        listWrap: {
+          flex: 1,
+          position: "relative",
+        },
         list: {
           flex: 1,
         },
@@ -99,51 +115,11 @@ export function AgentChat({
           flexGrow: 1,
           gap: spacing.sm,
           paddingBottom: spacing.md,
+          paddingRight: spacing.sm,
         },
         listContentEmpty: {
           flexGrow: 1,
           justifyContent: "center",
-        },
-        bubble: {
-          borderRadius: 14,
-          borderWidth: 1,
-          maxWidth: "92%",
-          padding: spacing.md,
-        },
-        userBubble: {
-          alignSelf: "flex-end",
-          backgroundColor: colors.accentMuted,
-          borderColor: colors.accent,
-        },
-        assistantBubble: {
-          alignSelf: "flex-start",
-          backgroundColor: colors.surface,
-          borderColor: colors.border,
-        },
-        role: {
-          color: colors.textMuted,
-          fontSize: typography.caption,
-          marginBottom: spacing.xs,
-          textTransform: "uppercase",
-        },
-        messageText: {
-          color: colors.text,
-          fontSize: typography.body,
-          lineHeight: 20,
-        },
-        toolBadge: {
-          alignSelf: "flex-start",
-          backgroundColor: colors.surfaceElevated,
-          borderColor: colors.border,
-          borderRadius: 999,
-          borderWidth: 1,
-          marginTop: spacing.xs,
-          paddingHorizontal: spacing.sm,
-          paddingVertical: 4,
-        },
-        toolText: {
-          color: colors.textMuted,
-          fontSize: typography.caption,
         },
         composerWrap: {
           paddingBottom: spacing.sm,
@@ -226,6 +202,84 @@ export function AgentChat({
     [colors, spacing, typography],
   );
 
+  const isNearBottom = useCallback((metrics: ChatScrollMetrics) => {
+    const { contentHeight, layoutHeight, offsetY } = metrics;
+    if (contentHeight <= layoutHeight) {
+      return true;
+    }
+    return offsetY + layoutHeight >= contentHeight - SCROLL_EDGE_THRESHOLD;
+  }, []);
+
+  const scrollToEndIfNearBottom = useCallback(() => {
+    if (isNearBottom(scrollMetricsRef.current)) {
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToEnd({ animated: true });
+      });
+    }
+  }, [isNearBottom]);
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+      setScrollMetrics({
+        contentHeight: contentSize.height,
+        layoutHeight: layoutMeasurement.height,
+        offsetY: contentOffset.y,
+      });
+    },
+    [],
+  );
+
+  const handleContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      const next = { ...scrollMetricsRef.current, contentHeight: height };
+      scrollMetricsRef.current = next;
+      setScrollMetrics(next);
+      scrollToEndIfNearBottom();
+    },
+    [scrollToEndIfNearBottom],
+  );
+
+  const handleListLayout = useCallback((event: LayoutChangeEvent) => {
+    const layoutHeight = event.nativeEvent.layout.height;
+    setScrollMetrics((current) => ({
+      ...current,
+      layoutHeight,
+    }));
+  }, []);
+
+  const handleScrollOffset = useCallback((offset: number) => {
+    setScrollMetrics((current) => ({ ...current, offsetY: offset }));
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    listRef.current?.scrollToEnd({ animated: true });
+  }, []);
+
+  const handleToggleCollapseMode = useCallback(() => {
+    setSessionCollapseMode((mode) => {
+      if (mode === "default") {
+        return "collapsed";
+      }
+      if (mode === "collapsed") {
+        return "expanded";
+      }
+      return "default";
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!lastMessageId || !listRef.current) {
+      return;
+    }
+    scrollToEndIfNearBottom();
+  }, [lastMessageId, scrollToEndIfNearBottom]);
+
   const submitText = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || sendPrompt.isPending || executeCommand.isPending) {
@@ -263,28 +317,13 @@ export function AgentChat({
     setDraft(`/${command.name} `);
   };
 
-  const renderItem = ({ item }: { item: MessageWithParts }) => {
-    const isUser = item.info.role === "user";
-    const text = getMessageText(item.parts);
-    const toolParts = item.parts.filter(isToolPart);
-
-    return (
-      <View
-        style={[
-          styles.bubble,
-          isUser ? styles.userBubble : styles.assistantBubble,
-        ]}
-      >
-        <Text style={styles.role}>{item.info.role}</Text>
-        {text ? <Text style={styles.messageText}>{text}</Text> : null}
-        {toolParts.map((part) => (
-          <View key={part.id} style={styles.toolBadge}>
-            <Text style={styles.toolText}>{formatToolLabel(part)}</Text>
-          </View>
-        ))}
-      </View>
-    );
-  };
+  const renderItem = ({ item }: { item: MessageWithParts }) => (
+    <ChatMessageBubble
+      collapseResetKey={collapseResetKey}
+      defaultCollapsed={defaultCollapsed}
+      message={item}
+    />
+  );
 
   const isEmpty = !isLoading && messages.length === 0;
   const isPending = sendPrompt.isPending || executeCommand.isPending;
@@ -305,48 +344,74 @@ export function AgentChat({
         </View>
       ) : null}
 
-      <FlatList
-        contentContainerStyle={[
-          styles.listContent,
-          isEmpty ? styles.listContentEmpty : null,
-        ]}
-        data={messages}
-        keyboardShouldPersistTaps="handled"
-        keyExtractor={(item) => item.info.id}
-        ListEmptyComponent={
-          isLoading ? null : (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>
-                Ask the agent to inspect, edit, or run commands. Try /
-                {hintCommand} or open the command palette.
-              </Text>
-              <View style={styles.emptyActions}>
-                {onCreateSession ? (
+      <View style={styles.listWrap}>
+        <FlatList
+          ref={listRef}
+          contentContainerStyle={[
+            styles.listContent,
+            isEmpty ? styles.listContentEmpty : null,
+          ]}
+          data={messages}
+          keyboardShouldPersistTaps="handled"
+          keyExtractor={(item) => item.info.id}
+          ListEmptyComponent={
+            isLoading ? null : (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>
+                  Ask the agent to inspect, edit, or run commands. Try /
+                  {hintCommand} or open the command palette.
+                </Text>
+                <View style={styles.emptyActions}>
+                  {onCreateSession ? (
+                    <Pressable
+                      onPress={onCreateSession}
+                      style={styles.emptyButton}
+                    >
+                      <Text style={styles.emptyButtonText}>New session</Text>
+                    </Pressable>
+                  ) : null}
+                  {onOpenPalette ? (
+                    <Pressable
+                      onPress={onOpenPalette}
+                      style={styles.emptyButton}
+                    >
+                      <Text style={styles.emptyButtonText}>
+                        Command palette
+                      </Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
-                    onPress={onCreateSession}
+                    onPress={() => setDraft(`/${hintCommand} `)}
                     style={styles.emptyButton}
                   >
-                    <Text style={styles.emptyButtonText}>New session</Text>
+                    <Text style={styles.emptyButtonText}>
+                      Try /{hintCommand}
+                    </Text>
                   </Pressable>
-                ) : null}
-                {onOpenPalette ? (
-                  <Pressable onPress={onOpenPalette} style={styles.emptyButton}>
-                    <Text style={styles.emptyButtonText}>Command palette</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable
-                  onPress={() => setDraft(`/${hintCommand} `)}
-                  style={styles.emptyButton}
-                >
-                  <Text style={styles.emptyButtonText}>Try /{hintCommand}</Text>
-                </Pressable>
+                </View>
               </View>
-            </View>
-          )
-        }
-        renderItem={renderItem}
-        style={styles.list}
-      />
+            )
+          }
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleListLayout}
+          onScroll={handleScroll}
+          renderItem={renderItem}
+          scrollEventThrottle={16}
+          style={styles.list}
+        />
+        <ChatScrollBar
+          listRef={listRef}
+          onScrollOffset={handleScrollOffset}
+          scrollMetrics={scrollMetrics}
+        />
+        <ChatScrollControls
+          onScrollToBottom={scrollToBottom}
+          onScrollToTop={scrollToTop}
+          onToggleCollapseMode={handleToggleCollapseMode}
+          scrollMetrics={scrollMetrics}
+          sessionCollapseMode={sessionCollapseMode}
+        />
+      </View>
 
       <View style={styles.composerWrap}>
         <SlashCommandMenu
