@@ -99,3 +99,10 @@ export interface PromptPreset {
   label: string;
   text: string;
 }
+
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  attachments: { path: string; name: string }[];
+  timestamp: number;
+}
