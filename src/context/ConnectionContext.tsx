@@ -20,6 +20,7 @@ import {
   fetchCurrentProject,
   testConnection,
 } from "@/api/client";
+import { useOfflineQueue } from "@/api/use-offline-queue";
 import { useReconnect } from "@/api/use-reconnect";
 import type {
   ConnectionConfig,
@@ -27,6 +28,7 @@ import type {
   ContextAttachment,
   BasicAuthCredential,
   ConnectionDraft,
+  QueuedMessage,
   StoredConnectionConfig,
 } from "@/types/opencode";
 
@@ -52,6 +54,7 @@ interface ConnectionContextValue {
   authHeader: string | null;
   basicAuthCredential: BasicAuthCredential | null;
   reconnectAttempt: number;
+  queuedMessages: QueuedMessage[];
   setAgentActive: (active: boolean) => void;
   connect: (config: ConnectionConfig, password?: string) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -67,6 +70,11 @@ interface ConnectionContextValue {
   addContextAttachment: (path: string) => void;
   removeContextAttachment: (id: string) => void;
   clearContextAttachments: () => void;
+  enqueueMessage: (
+    text: string,
+    attachments: QueuedMessage["attachments"],
+  ) => Promise<void>;
+  clearQueuedMessages: () => Promise<void>;
 }
 
 const ConnectionContext = createContext<ConnectionContextValue | undefined>(
@@ -152,6 +160,27 @@ export async function loadStoredConnectionConfig(): Promise<StoredConnectionConf
   }
 }
 
+async function sendPromptDirectly(
+  client: OpencodeClient,
+  sessionId: string,
+  directory: string | null,
+  text: string,
+  attachments: { path: string; name: string }[],
+): Promise<void> {
+  const attachmentParts = attachments.map((a) => ({
+    type: "text" as const,
+    text: `Context attachment: ${a.path}`,
+  }));
+
+  await client.session.prompt({
+    path: { id: sessionId },
+    ...(directory ? { query: { directory } } : {}),
+    body: {
+      parts: [...attachmentParts, { type: "text", text }],
+    },
+  });
+}
+
 export function ConnectionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [client, setClient] = useState<OpencodeClient | null>(null);
@@ -173,6 +202,23 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     undefined,
   );
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const sendMessageDirectly = useCallback(
+    async (text: string, attachments: QueuedMessage["attachments"]) => {
+      if (!client || !session?.id) throw new Error("No active session.");
+      await sendPromptDirectly(
+        client,
+        session.id,
+        activeDirectory,
+        text,
+        attachments,
+      );
+    },
+    [client, session, activeDirectory],
+  );
+
+  const { queue, enqueue, clearQueue, flushQueue } = useOfflineQueue({
+    onSend: sendMessageDirectly,
+  });
 
   const persistConfig = useCallback(async (next: StoredConnectionConfig) => {
     const stored = await AsyncStorage.getItem(RECENT_HOSTS_KEY);
@@ -440,6 +486,12 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     onFailed: handleReconnectFailed,
   });
 
+  useEffect(() => {
+    if (status === "connected" && queue.length > 0) {
+      void flushQueue();
+    }
+  }, [status, queue.length, flushQueue]);
+
   const reconnect = useCallback(() => {
     if (!config) return;
     setStatus("error");
@@ -517,6 +569,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       authHeader,
       basicAuthCredential,
       reconnectAttempt,
+      queuedMessages: queue,
       setAgentActive,
       connect,
       disconnect,
@@ -529,6 +582,8 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       addContextAttachment,
       removeContextAttachment,
       clearContextAttachments,
+      enqueueMessage: enqueue,
+      clearQueuedMessages: clearQueue,
     }),
     [
       agentActive,
@@ -541,8 +596,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       createSession,
       deleteSession,
       disconnect,
+      enqueue,
+      clearQueue,
       errorMessage,
       project,
+      queue,
       recentHosts,
       reconnect,
       reconnectAttempt,
