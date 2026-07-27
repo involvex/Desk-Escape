@@ -59,7 +59,8 @@ export function AgentChat({
   onSlashDraftChange,
 }: AgentChatProps) {
   const { colors, spacing, typography } = useTheme();
-  const { collapseToolCalls } = usePreferences();
+  const { collapseToolCalls, collapseThinking, thinkingDefaultMode } =
+    usePreferences();
   const { sessionId, contextAttachments } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
   const { data: commands = [] } = useCommands();
@@ -94,7 +95,20 @@ export function AgentChat({
         ? false
         : collapseToolCalls;
 
-  const collapseResetKey = `${sessionCollapseMode}-${collapseToolCalls}`;
+  const thinkingDefaultCollapsed =
+    sessionCollapseMode === "collapsed"
+      ? true
+      : sessionCollapseMode === "expanded"
+        ? false
+        : thinkingDefaultMode === "collapsed"
+          ? true
+          : thinkingDefaultMode === "expanded"
+            ? false
+            : thinkingDefaultMode === "auto"
+              ? false
+              : collapseThinking;
+
+  const collapseResetKey = `${sessionCollapseMode}-${collapseToolCalls}-${thinkingDefaultMode}`;
 
   const styles = useMemo(
     () =>
@@ -321,6 +335,7 @@ export function AgentChat({
     <ChatMessageBubble
       collapseResetKey={collapseResetKey}
       defaultCollapsed={defaultCollapsed}
+      thinkingDefaultCollapsed={thinkingDefaultCollapsed}
       message={item}
     />
   );

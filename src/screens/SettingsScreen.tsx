@@ -69,6 +69,14 @@ export function SettingsScreen({ navigation }: Props) {
     setPromptPresetTapToSend,
     collapseToolCalls,
     setCollapseToolCalls,
+    collapseThinking,
+    setCollapseThinking,
+    autoExpandThinkingDuringStream,
+    setAutoExpandThinkingDuringStream,
+    showThinkingTiming,
+    setShowThinkingTiming,
+    thinkingDefaultMode,
+    setThinkingDefaultMode,
   } = usePreferences();
   const { data: config, isLoading } = useOpenCodeConfig();
   const updateConfig = useUpdateConfig();
@@ -369,6 +377,58 @@ export function SettingsScreen({ navigation }: Props) {
                 trackColor={{ false: colors.border, true: colors.accentMuted }}
                 value={!collapseToolCalls}
               />
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Thinking & Reasoning</Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Collapse thinking by default</Text>
+              <Switch
+                onValueChange={setCollapseThinking}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={collapseThinking}
+              />
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Auto-expand during streaming</Text>
+              <Switch
+                onValueChange={setAutoExpandThinkingDuringStream}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={autoExpandThinkingDuringStream}
+              />
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Show timing information</Text>
+              <Switch
+                onValueChange={setShowThinkingTiming}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={showThinkingTiming}
+              />
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Default mode</Text>
+              <View style={styles.chipRow}>
+                {(["default", "collapsed", "expanded", "auto"] as const).map(
+                  (mode) => (
+                    <Pressable
+                      key={mode}
+                      onPress={() => setThinkingDefaultMode(mode)}
+                      style={[
+                        styles.chip,
+                        thinkingDefaultMode === mode ? styles.chipActive : null,
+                      ]}
+                    >
+                      <Text style={styles.chipText}>
+                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                      </Text>
+                    </Pressable>
+                  ),
+                )}
+              </View>
             </View>
           </View>
 

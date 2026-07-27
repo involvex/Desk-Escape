@@ -7,10 +7,7 @@ export function isToolPart(part: Part): part is ToolPart {
 }
 
 export function isThinkingPart(part: Part): boolean {
-  if (part.type === "text" || part.type === "tool") {
-    return false;
-  }
-  return true;
+  return part.type === "text" || part.type === "tool" ? false : true;
 }
 
 export function isCollapsiblePart(part: Part): boolean {
@@ -121,4 +118,39 @@ export function getThinkingBody(part: Part): string {
     return part.reasoning;
   }
   return JSON.stringify(part, null, 2);
+}
+
+export function getThinkingMetadata(part: Part): {
+  isStreaming: boolean;
+  duration: number | null;
+  startTime: number | null;
+  endTime: number | null;
+} {
+  if (!("state" in part) || !part.state || typeof part.state !== "object") {
+    return {
+      isStreaming: false,
+      duration: null,
+      startTime: null,
+      endTime: null,
+    };
+  }
+
+  const state = part.state as {
+    status?: string;
+    startTime?: number;
+    endTime?: number;
+    duration?: number;
+  };
+
+  return {
+    isStreaming:
+      part.state.status === "running" || part.state.status === "pending",
+    duration:
+      state.duration ??
+      (state.endTime && state.startTime
+        ? state.endTime - state.startTime
+        : null),
+    startTime: state.startTime ?? null,
+    endTime: state.endTime ?? null,
+  };
 }

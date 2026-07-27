@@ -4,7 +4,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -14,6 +13,11 @@ const AUTO_APPROVE_KEY = "@desk-escape/auto-approve-permissions";
 const PROMPT_PRESETS_KEY = "@desk-escape/prompt-presets";
 const PRESET_TAP_SEND_KEY = "@desk-escape/prompt-preset-tap-send";
 const COLLAPSE_TOOL_CALLS_KEY = "@desk-escape/collapse-tool-calls";
+const COLLAPSE_THINKING_KEY = "@desk-escape/collapse-thinking";
+const AUTO_EXPAND_THINKING_DURING_STREAM_KEY =
+  "@desk-escape/auto-expand-thinking-during-stream";
+const SHOW_THINKING_TIMING_KEY = "@desk-escape/show-thinking-timing";
+const THINKING_DEFAULT_MODE_KEY = "@desk-escape/thinking-default-mode";
 
 export const DEFAULT_PROMPT_PRESETS: PromptPreset[] = [
   {
@@ -52,6 +56,16 @@ interface PreferencesContextValue {
   setPromptPresetTapToSend: (enabled: boolean) => void;
   collapseToolCalls: boolean;
   setCollapseToolCalls: (collapsed: boolean) => void;
+  collapseThinking: boolean;
+  setCollapseThinking: (collapsed: boolean) => void;
+  autoExpandThinkingDuringStream: boolean;
+  setAutoExpandThinkingDuringStream: (enabled: boolean) => void;
+  showThinkingTiming: boolean;
+  setShowThinkingTiming: (enabled: boolean) => void;
+  thinkingDefaultMode: "default" | "collapsed" | "expanded" | "auto";
+  setThinkingDefaultMode: (
+    mode: "default" | "collapsed" | "expanded" | "auto",
+  ) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -59,25 +73,48 @@ const PreferencesContext = createContext<PreferencesContextValue | undefined>(
 );
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
-  const [autoApprovePermissions, setAutoApproveState] = useState(false);
+  const [autoApprovePermissions, setAutoApprovePermissionsState] =
+    useState(false);
   const [promptPresets, setPromptPresetsState] = useState<PromptPreset[]>(
     DEFAULT_PROMPT_PRESETS,
   );
   const [promptPresetTapToSend, setPromptPresetTapToSendState] =
     useState(false);
   const [collapseToolCalls, setCollapseToolCallsState] = useState(true);
+  const [collapseThinking, setCollapseThinkingState] = useState(true);
+  const [
+    autoExpandThinkingDuringStream,
+    setAutoExpandThinkingDuringStreamState,
+  ] = useState(true);
+  const [showThinkingTiming, setShowThinkingTimingState] = useState(true);
+  const [thinkingDefaultMode, setThinkingDefaultModeState] = useState<
+    "default" | "collapsed" | "expanded" | "auto"
+  >("default");
 
   useEffect(() => {
     void (async () => {
-      const [autoApprove, presets, tapSend, collapseTools] = await Promise.all([
+      const [
+        autoApprove,
+        presets,
+        tapSend,
+        collapseTools,
+        collapseThinking,
+        autoExpand,
+        showTiming,
+        defaultMode,
+      ] = await Promise.all([
         AsyncStorage.getItem(AUTO_APPROVE_KEY),
         AsyncStorage.getItem(PROMPT_PRESETS_KEY),
         AsyncStorage.getItem(PRESET_TAP_SEND_KEY),
         AsyncStorage.getItem(COLLAPSE_TOOL_CALLS_KEY),
+        AsyncStorage.getItem(COLLAPSE_THINKING_KEY),
+        AsyncStorage.getItem(AUTO_EXPAND_THINKING_DURING_STREAM_KEY),
+        AsyncStorage.getItem(SHOW_THINKING_TIMING_KEY),
+        AsyncStorage.getItem(THINKING_DEFAULT_MODE_KEY),
       ]);
 
       if (autoApprove === "true") {
-        setAutoApproveState(true);
+        setAutoApprovePermissionsState(true);
       }
       if (presets) {
         try {
@@ -92,11 +129,27 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if (collapseTools === "false") {
         setCollapseToolCallsState(false);
       }
+      if (collapseThinking === "false") {
+        setCollapseThinkingState(false);
+      }
+      if (autoExpand === "false") {
+        setAutoExpandThinkingDuringStreamState(false);
+      }
+      if (showTiming === "false") {
+        setShowThinkingTimingState(false);
+      }
+      if (defaultMode === "collapsed") {
+        setThinkingDefaultModeState("collapsed");
+      } else if (defaultMode === "expanded") {
+        setThinkingDefaultModeState("expanded");
+      } else if (defaultMode === "auto") {
+        setThinkingDefaultModeState("auto");
+      }
     })();
   }, []);
 
   const setAutoApprovePermissions = useCallback((enabled: boolean) => {
-    setAutoApproveState(enabled);
+    setAutoApprovePermissionsState(enabled);
     void AsyncStorage.setItem(AUTO_APPROVE_KEY, String(enabled));
   }, []);
 
@@ -115,31 +168,53 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.setItem(COLLAPSE_TOOL_CALLS_KEY, String(collapsed));
   }, []);
 
-  const value = useMemo(
-    () => ({
-      autoApprovePermissions,
-      setAutoApprovePermissions,
-      promptPresets,
-      setPromptPresets,
-      promptPresetTapToSend,
-      setPromptPresetTapToSend,
-      collapseToolCalls,
-      setCollapseToolCalls,
-    }),
-    [
-      autoApprovePermissions,
-      collapseToolCalls,
-      promptPresetTapToSend,
-      promptPresets,
-      setAutoApprovePermissions,
-      setCollapseToolCalls,
-      setPromptPresetTapToSend,
-      setPromptPresets,
-    ],
+  const setCollapseThinking = useCallback((collapsed: boolean) => {
+    setCollapseThinkingState(collapsed);
+    void AsyncStorage.setItem(COLLAPSE_THINKING_KEY, String(collapsed));
+  }, []);
+
+  const setAutoExpandThinkingDuringStream = useCallback((enabled: boolean) => {
+    setAutoExpandThinkingDuringStreamState(enabled);
+    void AsyncStorage.setItem(
+      AUTO_EXPAND_THINKING_DURING_STREAM_KEY,
+      String(enabled),
+    );
+  }, []);
+
+  const setShowThinkingTiming = useCallback((enabled: boolean) => {
+    setShowThinkingTimingState(enabled);
+    void AsyncStorage.setItem(SHOW_THINKING_TIMING_KEY, String(enabled));
+  }, []);
+
+  const setThinkingDefaultMode = useCallback(
+    (mode: "default" | "collapsed" | "expanded" | "auto") => {
+      setThinkingDefaultModeState(mode);
+      void AsyncStorage.setItem(THINKING_DEFAULT_MODE_KEY, mode);
+    },
+    [],
   );
 
   return (
-    <PreferencesContext.Provider value={value}>
+    <PreferencesContext.Provider
+      value={{
+        autoApprovePermissions,
+        setAutoApprovePermissions,
+        promptPresets,
+        setPromptPresets,
+        promptPresetTapToSend,
+        setPromptPresetTapToSend,
+        collapseToolCalls,
+        setCollapseToolCalls,
+        collapseThinking,
+        setCollapseThinking,
+        autoExpandThinkingDuringStream,
+        setAutoExpandThinkingDuringStream,
+        showThinkingTiming,
+        setShowThinkingTiming,
+        thinkingDefaultMode,
+        setThinkingDefaultMode,
+      }}
+    >
       {children}
     </PreferencesContext.Provider>
   );
