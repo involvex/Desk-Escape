@@ -24,6 +24,7 @@ import { FileDrawer } from "@/components/FileDrawer";
 import { MessageSearchBar } from "@/components/MessageSearchBar";
 import { LandscapeFileRail } from "@/components/LandscapeFileRail";
 import { PanelTabs } from "@/components/PanelTabs";
+import { OfflineQueueIndicator } from "@/components/OfflineQueueIndicator";
 import { PermissionBanner } from "@/components/PermissionBanner";
 import { ProjectPicker } from "@/components/ProjectPicker";
 import { SessionPicker } from "@/components/SessionPicker";
@@ -271,6 +272,8 @@ export function WorkspaceScreen() {
           <MoreVertical color={colors.textMuted} size={20} />
         </Pressable>
       </View>
+
+      <OfflineQueueIndicator />
 
       {overflowOpen ? (
         <View style={styles.overflowMenu}>
