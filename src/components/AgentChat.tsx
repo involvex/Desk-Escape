@@ -63,7 +63,13 @@ export function AgentChat({
   const { colors, spacing, typography } = useTheme();
   const { collapseToolCalls, collapseThinking, thinkingDefaultMode } =
     usePreferences();
-  const { sessionId, contextAttachments } = useConnection();
+  const {
+    sessionId,
+    contextAttachments,
+    clearContextAttachments,
+    enqueueMessage,
+    status,
+  } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
   const { data: commands = [] } = useCommands();
   const sendPrompt = useSendPrompt(sessionId);
@@ -309,26 +315,47 @@ export function AgentChat({
     });
   }, [scrollToMessageId, messages]);
 
-  const submitText = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || sendPrompt.isPending || executeCommand.isPending) {
-      return;
-    }
-
-    setDraft("");
-    Keyboard.dismiss();
-
-    if (trimmed.startsWith("/")) {
-      const { name, args } = parseSlashInput(trimmed);
-      if (!name) {
+  const submitText = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || sendPrompt.isPending || executeCommand.isPending) {
         return;
       }
-      void executeCommand.mutateAsync({ command: name, arguments: args });
-      return;
-    }
 
-    void sendPrompt.mutateAsync(trimmed);
-  };
+      setDraft("");
+      Keyboard.dismiss();
+
+      if (status !== "connected") {
+        const attachmentPayload = contextAttachments.map((a) => ({
+          path: a.path,
+          name: a.path.split("/").pop() ?? a.path,
+        }));
+        void enqueueMessage(trimmed, attachmentPayload);
+        clearContextAttachments();
+        return;
+      }
+
+      if (trimmed.startsWith("/")) {
+        const { name, args } = parseSlashInput(trimmed);
+        if (!name) {
+          return;
+        }
+        void executeCommand.mutateAsync({ command: name, arguments: args });
+        return;
+      }
+
+      void sendPrompt.mutateAsync(trimmed);
+    },
+    [
+      status,
+      enqueueMessage,
+      contextAttachments,
+      clearContextAttachments,
+      sendPrompt,
+      executeCommand,
+      setDraft,
+    ],
+  );
 
   const handleSend = () => {
     submitText(draft);
