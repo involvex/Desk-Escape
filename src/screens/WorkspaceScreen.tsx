@@ -9,10 +9,11 @@ import {
   ChevronDown,
   LogOut,
   MoreVertical,
+  Search,
   Settings,
 } from "lucide-react-native";
 import { getWorktreeName } from "@/api/client";
-import { useCurrentProject } from "@/api/hooks";
+import { useCurrentProject, useSessionMessages } from "@/api/hooks";
 import { AgentChat } from "@/components/AgentChat";
 import {
   CommandPalette,
@@ -20,6 +21,7 @@ import {
   type PaletteAction,
 } from "@/components/CommandPalette";
 import { FileDrawer } from "@/components/FileDrawer";
+import { MessageSearchBar } from "@/components/MessageSearchBar";
 import { LandscapeFileRail } from "@/components/LandscapeFileRail";
 import { PanelTabs } from "@/components/PanelTabs";
 import { PermissionBanner } from "@/components/PermissionBanner";
@@ -51,6 +53,7 @@ export function WorkspaceScreen() {
     createSession,
   } = useConnection();
   const { data: currentProject } = useCurrentProject();
+  const { data: messages = [] } = useSessionMessages(session?.id ?? null);
   const [activePanel, setActivePanel] = useState<WorkspacePanel>("agent");
   const [fileDrawerOpen, setFileDrawerOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
@@ -59,6 +62,8 @@ export function WorkspaceScreen() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [slashDraft, setSlashDraft] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTargetId, setSearchTargetId] = useState<string | null>(null);
 
   const worktreeName = getWorktreeName(
     currentProject?.worktree ?? project?.worktree,
@@ -226,7 +231,7 @@ export function WorkspaceScreen() {
   const statusColor =
     status === "connected"
       ? colors.success
-      : status === "connecting"
+      : status === "connecting" || status === "reconnecting"
         ? colors.warning
         : colors.danger;
 
@@ -240,6 +245,7 @@ export function WorkspaceScreen() {
       onCreateSession={() => void createSession()}
       onOpenPalette={() => setPaletteOpen(true)}
       onSlashDraftChange={setSlashDraft}
+      scrollToMessageId={searchTargetId}
       slashDraft={slashDraft}
     />
   );
@@ -255,8 +261,9 @@ export function WorkspaceScreen() {
               <ChevronDown color={colors.textMuted} size={16} />
             </View>
             <Text style={styles.subtitle}>
-              {session?.title ?? "Session"} · Agent{" "}
-              {agentActive ? "active" : "idle"}
+              {status === "reconnecting"
+                ? "Reconnecting..."
+                : `${session?.title ?? "Session"} · Agent ${agentActive ? "active" : "idle"}`}
             </Text>
           </Pressable>
         </View>
@@ -267,6 +274,20 @@ export function WorkspaceScreen() {
 
       {overflowOpen ? (
         <View style={styles.overflowMenu}>
+          <Pressable
+            onPress={() => {
+              setOverflowOpen(false);
+              setSearchOpen(true);
+            }}
+            style={styles.overflowItem}
+          >
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Search color={colors.textMuted} size={16} />
+              <Text style={styles.overflowText}>Search messages</Text>
+            </View>
+          </Pressable>
           <Pressable
             onPress={() => {
               setOverflowOpen(false);
@@ -364,6 +385,12 @@ export function WorkspaceScreen() {
         onClose={() => setPaletteOpen(false)}
         onSelectAction={handlePaletteAction}
         visible={paletteOpen}
+      />
+      <MessageSearchBar
+        visible={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        messages={messages}
+        onSelectMessage={(messageId) => setSearchTargetId(messageId)}
       />
     </SafeAreaView>
   );

@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { CollapsiblePartGroup } from "@/components/chat/CollapsiblePartGroup";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { ThinkingPartGroup } from "@/components/chat/ThinkingPartGroup";
 import {
   getMessageText,
@@ -21,6 +22,7 @@ interface ChatMessageBubbleProps {
   defaultCollapsed: boolean;
   thinkingDefaultCollapsed: boolean;
   collapseResetKey: string;
+  onRunCommand?: (command: string) => void;
 }
 
 function groupConsecutiveThinkingParts(parts: Part[]): Part[][] {
@@ -45,11 +47,12 @@ function groupConsecutiveThinkingParts(parts: Part[]): Part[][] {
   return groups;
 }
 
-export function ChatMessageBubble({
+export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
   message,
   defaultCollapsed,
   thinkingDefaultCollapsed,
   collapseResetKey,
+  onRunCommand,
 }: ChatMessageBubbleProps) {
   const { colors, spacing, typography } = useTheme();
   const { autoExpandThinkingDuringStream, showThinkingTiming } =
@@ -114,7 +117,13 @@ export function ChatMessageBubble({
       ]}
     >
       <Text style={styles.role}>{message.info.role}</Text>
-      {text ? <Text style={styles.messageText}>{text}</Text> : null}
+      {text ? (
+        isUser ? (
+          <Text style={styles.messageText}>{text}</Text>
+        ) : (
+          <MarkdownRenderer content={text} onRunCommand={onRunCommand} />
+        )
+      ) : null}
       {thinkingGroups.map((group, index) => {
         const firstPart = group[0];
         if (!firstPart) return null;
@@ -146,5 +155,19 @@ export function ChatMessageBubble({
         );
       })}
     </View>
+  );
+}, areEqual);
+
+function areEqual(
+  prev: ChatMessageBubbleProps,
+  next: ChatMessageBubbleProps,
+): boolean {
+  return (
+    prev.message.info.id === next.message.info.id &&
+    prev.message.parts === next.message.parts &&
+    prev.defaultCollapsed === next.defaultCollapsed &&
+    prev.thinkingDefaultCollapsed === next.thinkingDefaultCollapsed &&
+    prev.collapseResetKey === next.collapseResetKey &&
+    prev.onRunCommand === next.onRunCommand
   );
 }

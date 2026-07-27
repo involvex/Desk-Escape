@@ -43,6 +43,7 @@ interface AgentChatProps {
   onCreateSession?: () => void;
   slashDraft?: string;
   onSlashDraftChange?: (value: string) => void;
+  scrollToMessageId?: string | null;
 }
 
 const INITIAL_SCROLL_METRICS: ChatScrollMetrics = {
@@ -57,6 +58,7 @@ export function AgentChat({
   onCreateSession,
   slashDraft,
   onSlashDraftChange,
+  scrollToMessageId,
 }: AgentChatProps) {
   const { colors, spacing, typography } = useTheme();
   const { collapseToolCalls, collapseThinking, thinkingDefaultMode } =
@@ -294,6 +296,19 @@ export function AgentChat({
     scrollToEndIfNearBottom();
   }, [lastMessageId, scrollToEndIfNearBottom]);
 
+  useEffect(() => {
+    if (!scrollToMessageId || !listRef.current) return;
+    const index = messages.findIndex((m) => m.info.id === scrollToMessageId);
+    if (index === -1) return;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({
+        index,
+        animated: true,
+        viewPosition: 0.3,
+      });
+    });
+  }, [scrollToMessageId, messages]);
+
   const submitText = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || sendPrompt.isPending || executeCommand.isPending) {
@@ -331,12 +346,21 @@ export function AgentChat({
     setDraft(`/${command.name} `);
   };
 
+  const handleRunCommand = useCallback(
+    (command: string) => {
+      if (!sessionId || !command.trim()) return;
+      void executeCommand.mutateAsync({ command: command.trim() });
+    },
+    [executeCommand, sessionId],
+  );
+
   const renderItem = ({ item }: { item: MessageWithParts }) => (
     <ChatMessageBubble
       collapseResetKey={collapseResetKey}
       defaultCollapsed={defaultCollapsed}
       thinkingDefaultCollapsed={thinkingDefaultCollapsed}
       message={item}
+      onRunCommand={handleRunCommand}
     />
   );
 
@@ -367,6 +391,11 @@ export function AgentChat({
             isEmpty ? styles.listContentEmpty : null,
           ]}
           data={messages}
+          getItemLayout={(_data, index) => ({
+            length: 120,
+            offset: 120 * index,
+            index,
+          })}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(item) => item.info.id}
           ListEmptyComponent={

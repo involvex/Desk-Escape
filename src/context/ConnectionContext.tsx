@@ -20,6 +20,7 @@ import {
   fetchCurrentProject,
   testConnection,
 } from "@/api/client";
+import { useReconnect } from "@/api/use-reconnect";
 import type {
   ConnectionConfig,
   ConnectionStatus,
@@ -50,9 +51,11 @@ interface ConnectionContextValue {
   errorMessage: string | null;
   authHeader: string | null;
   basicAuthCredential: BasicAuthCredential | null;
+  reconnectAttempt: number;
   setAgentActive: (active: boolean) => void;
   connect: (config: ConnectionConfig, password?: string) => Promise<void>;
   disconnect: () => Promise<void>;
+  reconnect: () => void;
   selectSession: (sessionId: string) => Promise<void>;
   selectProject: (worktree: string) => Promise<void>;
   createSession: (title?: string) => Promise<Session>;
@@ -166,6 +169,10 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const [authHeader, setAuthHeader] = useState<string | null>(null);
   const [basicAuthCredential, setBasicAuthCredential] =
     useState<BasicAuthCredential | null>(null);
+  const [savedPassword, setSavedPassword] = useState<string | undefined>(
+    undefined,
+  );
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   const persistConfig = useCallback(async (next: StoredConnectionConfig) => {
     const stored = await AsyncStorage.getItem(RECENT_HOSTS_KEY);
@@ -185,6 +192,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     async (nextConfig: ConnectionConfig, password?: string) => {
       setStatus("connecting");
       setErrorMessage(null);
+      setSavedPassword(password);
 
       try {
         if (nextConfig.useAuth && password) {
@@ -407,6 +415,37 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const handleReconnecting = useCallback(() => {
+    setStatus("reconnecting");
+  }, []);
+
+  const handleReconnected = useCallback(() => {
+    setStatus("connected");
+    setReconnectAttempt(0);
+    setErrorMessage(null);
+  }, []);
+
+  const handleReconnectFailed = useCallback((error: string) => {
+    setStatus("error");
+    setErrorMessage(error);
+    setReconnectAttempt(0);
+  }, []);
+
+  useReconnect({
+    config,
+    password: savedPassword,
+    status,
+    onReconnecting: handleReconnecting,
+    onConnected: handleReconnected,
+    onFailed: handleReconnectFailed,
+  });
+
+  const reconnect = useCallback(() => {
+    if (!config) return;
+    setStatus("error");
+    setErrorMessage(null);
+  }, [config]);
+
   const addContextAttachment = useCallback((path: string) => {
     setContextAttachments((current) => {
       if (current.some((item) => item.path === path)) {
@@ -477,9 +516,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       errorMessage,
       authHeader,
       basicAuthCredential,
+      reconnectAttempt,
       setAgentActive,
       connect,
       disconnect,
+      reconnect,
       selectSession,
       selectProject,
       createSession,
@@ -490,25 +531,28 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       clearContextAttachments,
     }),
     [
-      client,
-      config,
-      status,
-      session,
-      project,
-      activeDirectory,
       agentActive,
-      contextAttachments,
-      recentHosts,
-      errorMessage,
       authHeader,
       basicAuthCredential,
+      client,
+      config,
       connect,
-      disconnect,
-      selectSession,
-      selectProject,
+      contextAttachments,
       createSession,
       deleteSession,
+      disconnect,
+      errorMessage,
+      project,
+      recentHosts,
+      reconnect,
+      reconnectAttempt,
+      selectProject,
+      selectSession,
+      setAgentActive,
+      status,
+      session,
       testServerConnection,
+      activeDirectory,
       addContextAttachment,
       removeContextAttachment,
       clearContextAttachments,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ChevronDown, ChevronRight, Brain } from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
@@ -22,7 +22,7 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function ThinkingPartGroup({
+export const ThinkingPartGroup = memo(function ThinkingPartGroupInner({
   parts,
   defaultCollapsed,
   autoExpandDuringStream = true,
@@ -214,6 +214,19 @@ export function ThinkingPartGroup({
       ) : null}
     </View>
   );
+});
+
+function areEqual(
+  prev: ThinkingPartGroupProps,
+  next: ThinkingPartGroupProps,
+): boolean {
+  return (
+    prev.parts === next.parts &&
+    prev.defaultCollapsed === next.defaultCollapsed &&
+    prev.autoExpandDuringStream === next.autoExpandDuringStream &&
+    prev.showTiming === next.showTiming &&
+    prev.collapseResetKey === next.collapseResetKey
+  );
 }
 
-export default ThinkingPartGroup;
+export default memo(ThinkingPartGroup, areEqual);

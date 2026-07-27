@@ -26,7 +26,8 @@ export type ConnectionStatus =
   | "disconnected"
   | "connecting"
   | "connected"
-  | "error";
+  | "error"
+  | "reconnecting";
 
 export type TestConnectionStatus = "idle" | "testing" | "success" | "error";
 

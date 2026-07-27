@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
@@ -43,7 +43,7 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function CollapsiblePartGroup({
+export const CollapsiblePartGroup = memo(function CollapsiblePartGroupInner({
   label,
   body,
   defaultCollapsed,
@@ -211,5 +211,20 @@ export function CollapsiblePartGroup({
         </Text>
       ) : null}
     </View>
+  );
+}, areEqual);
+
+function areEqual(
+  prev: CollapsiblePartGroupProps,
+  next: CollapsiblePartGroupProps,
+): boolean {
+  return (
+    prev.label === next.label &&
+    prev.body === next.body &&
+    prev.defaultCollapsed === next.defaultCollapsed &&
+    prev.status === next.status &&
+    prev.partType === next.partType &&
+    prev.duration === next.duration &&
+    prev.isStreaming === next.isStreaming
   );
 }
