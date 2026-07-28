@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useMemo, useState } from "react";
+import * as LocalAuthentication from "expo-local-authentication";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react-native";
 import { useOpenCodeConfig, useUpdateConfig } from "@/api/hooks";
+import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { useOrientation } from "@/context/OrientationContext";
 import {
   DEFAULT_PROMPT_PRESETS,
@@ -78,6 +80,8 @@ export function SettingsScreen({ navigation }: Props) {
     thinkingDefaultMode,
     setThinkingDefaultMode,
   } = usePreferences();
+  const { lockState, authenticate, setBiometricLockEnabled } =
+    useBiometricLockContext();
   const { data: config, isLoading } = useOpenCodeConfig();
   const updateConfig = useUpdateConfig();
   const [jsonDraft, setJsonDraft] = useState("");
@@ -85,6 +89,25 @@ export function SettingsScreen({ navigation }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [newPresetLabel, setNewPresetLabel] = useState("");
   const [newPresetText, setNewPresetText] = useState("");
+  const [hasBiometricHardware, setHasBiometricHardware] = useState(false);
+
+  useEffect(() => {
+    void LocalAuthentication.hasHardwareAsync().then(setHasBiometricHardware);
+  }, []);
+
+  const handleBiometricToggle = useCallback(
+    async (enabled: boolean) => {
+      if (enabled) {
+        const success = await authenticate();
+        if (success) {
+          await setBiometricLockEnabled(true);
+        }
+      } else {
+        await setBiometricLockEnabled(false);
+      }
+    },
+    [authenticate, setBiometricLockEnabled],
+  );
 
   const styles = useMemo(
     () =>
@@ -452,6 +475,30 @@ export function SettingsScreen({ navigation }: Props) {
               </Text>
               <ChevronRight color={colors.textMuted} size={18} />
             </Pressable>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Biometric Lock</Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>
+                {hasBiometricHardware
+                  ? "Require biometric authentication"
+                  : "Biometrics not available on this device"}
+              </Text>
+              <Switch
+                disabled={!hasBiometricHardware}
+                onValueChange={handleBiometricToggle}
+                thumbColor={colors.text}
+                trackColor={{
+                  false: colors.border,
+                  true: colors.accentMuted,
+                }}
+                value={lockState === "locked"}
+              />
+            </View>
+            {!hasBiometricHardware ? (
+              <Text style={styles.meta}>No biometric hardware detected.</Text>
+            ) : null}
           </View>
 
           <View style={styles.section}>
