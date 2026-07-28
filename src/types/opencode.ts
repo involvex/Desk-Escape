@@ -106,3 +106,5 @@ export interface QueuedMessage {
   attachments: { path: string; name: string }[];
   timestamp: number;
 }
+
+export type BiometricLockState = "locked" | "unlocking" | "unlocked";
