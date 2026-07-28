@@ -12,13 +12,13 @@
 
 ## File Map
 
-| File | Action | Purpose |
-|---|---|---|
-| `src/context/BiometricLockContext.tsx` | Create | Provider that manages biometric lock state |
-| `src/hooks/useBiometricLock.ts` | Create | Hook wrapping `expo-local-authentication` API |
-| `src/navigation/RootNavigator.tsx` | Modify | Show biometric gate before Workspace |
-| `src/screens/SettingsScreen.tsx` | Modify | Add biometric lock toggle |
-| `src/types/opencode.ts` | Modify | Add BiometricLockState type |
+| File                                   | Action | Purpose                                       |
+| -------------------------------------- | ------ | --------------------------------------------- |
+| `src/context/BiometricLockContext.tsx` | Create | Provider that manages biometric lock state    |
+| `src/hooks/useBiometricLock.ts`        | Create | Hook wrapping `expo-local-authentication` API |
+| `src/navigation/RootNavigator.tsx`     | Modify | Show biometric gate before Workspace          |
+| `src/screens/SettingsScreen.tsx`       | Modify | Add biometric lock toggle                     |
+| `src/types/opencode.ts`                | Modify | Add BiometricLockState type                   |
 
 ---
 
@@ -36,9 +36,11 @@
 ### Task 1: Define `BiometricLockState` type
 
 **Files:**
+
 - Modify: `src/types/opencode.ts`
 
 **Interfaces:**
+
 - Produces: `BiometricLockState` type used by the lock context
 
 - [ ] **Step 1: Add `BiometricLockState` to `src/types/opencode.ts`**
@@ -59,9 +61,11 @@ Expected: PASS
 ### Task 2: Create `useBiometricLock` hook
 
 **Files:**
+
 - Create: `src/hooks/useBiometricLock.ts`
 
 **Interfaces:**
+
 - Consumes: `expo-local-authentication`, `expo-secure-store`
 - Produces: `useBiometricLock` hook returning `{ state, authenticate, setEnabled }`
 
@@ -88,7 +92,9 @@ async function setBiometricEnabled(enabled: boolean): Promise<void> {
 }
 
 export function useBiometricLock() {
-  const [state, setState] = useState<"locked" | "unlocking" | "unlocked">("locked");
+  const [state, setState] = useState<"locked" | "unlocking" | "unlocked">(
+    "locked",
+  );
 
   const authenticate = useCallback(async (): Promise<boolean> => {
     const compatible = await LocalAuthentication.hasHardwareAsync();
@@ -118,17 +124,14 @@ export function useBiometricLock() {
     }
   }, []);
 
-  const setEnabled = useCallback(
-    async (enabled: boolean) => {
-      await setBiometricEnabled(enabled);
-      if (!enabled) {
-        setState("unlocked");
-      } else {
-        setState("locked");
-      }
-    },
-    [],
-  );
+  const setEnabled = useCallback(async (enabled: boolean) => {
+    await setBiometricEnabled(enabled);
+    if (!enabled) {
+      setState("unlocked");
+    } else {
+      setState("locked");
+    }
+  }, []);
 
   return { state, authenticate, setEnabled };
 }
@@ -156,10 +159,12 @@ git commit -m "feat: add useBiometricLock hook with SecureStore persistence"
 ### Task 3: Create `BiometricLockProvider` and integrate into app
 
 **Files:**
+
 - Create: `src/context/BiometricLockContext.tsx`
 - Modify: `App.tsx`
 
 **Interfaces:**
+
 - Consumes: `useBiometricLock` from Task 2, `BiometricLockState` type from Task 1
 - Produces: `BiometricLockProvider` wrapping the app shell; biolock state exposed via context
 
@@ -332,9 +337,11 @@ git commit -m "feat: add biometric lock provider and workspace gate"
 ### Task 4: Add biometric toggle to SettingsScreen
 
 **Files:**
+
 - Modify: `src/screens/SettingsScreen.tsx`
 
 **Interfaces:**
+
 - Consumes: `useBiometricLockContext` from `BiometricLockContext`
 - Produces: A toggle row in Settings for "Biometric Lock"
 
