@@ -1,4 +1,3 @@
-import type { EventSubscribeResponse } from "@opencode-ai/sdk/client";
 import * as Notifications from "expo-notifications";
 import {
   createContext,
@@ -34,7 +33,7 @@ const PermissionContext = createContext<PermissionContextValue | undefined>(
 );
 
 export function PermissionProvider({ children }: { children: ReactNode }) {
-  const { client, activeDirectory } = useConnection();
+  const { client, activeDirectory, eventBus } = useConnection();
   const { autoApprovePermissions } = usePreferences();
   const [pending, setPending] = useState<PendingPermission | null>(null);
   const [appState, setAppState] = useState<AppStateStatus>(
@@ -75,44 +74,19 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!client) {
-      return;
-    }
+    if (!client || !eventBus) return;
 
-    let active = true;
-    const abort = new AbortController();
-
-    void (async () => {
-      try {
-        const subscription = await client.event.subscribe({
-          signal: abort.signal,
-        });
-
-        for await (const event of subscription.stream) {
-          if (!active) {
-            break;
-          }
-
-          const permission = parsePermissionEvent(
-            event as EventSubscribeResponse & {
-              properties?: Record<string, unknown>;
-            },
-          );
-
-          if (permission) {
-            void handlePermission(permission);
-          }
-        }
-      } catch {
-        // SSE may be unavailable on some hosts.
+    const unsubscribe = eventBus.onEvent((event: unknown) => {
+      const permissionData = parsePermissionEvent(
+        event as { type: string; properties?: Record<string, unknown> },
+      );
+      if (permissionData) {
+        handlePermission(permissionData);
       }
-    })();
+    });
 
-    return () => {
-      active = false;
-      abort.abort();
-    };
-  }, [client, handlePermission]);
+    return unsubscribe;
+  }, [client, eventBus, handlePermission]);
 
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener(
