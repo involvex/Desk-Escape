@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import type { Command, Config, Session } from "@opencode-ai/sdk/client";
+import type {
+  Command,
+  Config,
+  EventSubscribeResponse,
+  Session,
+} from "@opencode-ai/sdk/client";
 import {
   applyStreamEvent,
   isAgentBusyEvent,
@@ -328,60 +333,39 @@ export function useExecuteCommand(sessionId: string | null) {
 }
 
 export function useSessionMessageStream(sessionId: string | null) {
+  const { client, eventBus, setAgentActive } = useConnection();
   const queryClient = useQueryClient();
-  const { client, activeDirectory, setAgentActive } = useConnection();
 
   useEffect(() => {
-    if (!client || !sessionId) {
-      return;
-    }
+    if (!client || !sessionId || !eventBus) return;
 
-    let active = true;
-    const abort = new AbortController();
+    const unsubscribe = eventBus.onEvent((raw: unknown) => {
+      const event = raw as EventSubscribeResponse;
 
-    void (async () => {
-      try {
-        const subscription = await client.event.subscribe({
-          signal: abort.signal,
-        });
-
-        for await (const event of subscription.stream) {
-          if (!active) {
-            break;
-          }
-
-          const busy = isAgentBusyEvent(event);
-          if (busy !== null) {
-            setAgentActive(busy);
-          }
-
-          if (shouldRefetchMessages(event)) {
-            const messages = await fetchSessionMessages(
-              client,
-              sessionId,
-              activeDirectory,
-            );
-            queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
-            continue;
-          }
-
-          queryClient.setQueryData<MessageWithParts[]>(
-            sessionMessagesKey(sessionId),
-            (current) => {
-              const base = current ?? [];
-              const next = applyStreamEvent(base, event, sessionId);
-              return next ?? base;
-            },
-          );
-        }
-      } catch {
-        // SSE may be unavailable on some remote hosts; initial fetch still works.
+      const busy = isAgentBusyEvent(event);
+      if (busy !== null) {
+        setAgentActive(busy);
+        return;
       }
-    })();
 
-    return () => {
-      active = false;
-      abort.abort();
-    };
-  }, [activeDirectory, client, queryClient, sessionId, setAgentActive]);
+      if (shouldRefetchMessages(event)) {
+        void fetchSessionMessages(client, sessionId).then((messages) => {
+          queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
+        });
+        return;
+      }
+
+      const base = queryClient.getQueryData<MessageWithParts[]>(
+        sessionMessagesKey(sessionId),
+      );
+      if (!base) return;
+
+      const updated = applyStreamEvent(base, event, sessionId);
+      if (updated) {
+        queryClient.setQueryData(sessionMessagesKey(sessionId), updated);
+      }
+    });
+
+    return unsubscribe;
+  }, [client, eventBus, sessionId, queryClient, setAgentActive]);
 }
