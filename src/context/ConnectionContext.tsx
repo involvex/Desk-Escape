@@ -11,6 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { EventBus } from "@/api/event-bus";
 import { withDirectoryQuery } from "@/api/directory";
 import {
   clearClientCache,
@@ -55,6 +56,7 @@ interface ConnectionContextValue {
   basicAuthCredential: BasicAuthCredential | null;
   reconnectAttempt: number;
   queuedMessages: QueuedMessage[];
+  eventBus: EventBus;
   setAgentActive: (active: boolean) => void;
   connect: (config: ConnectionConfig, password?: string) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -202,6 +204,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     undefined,
   );
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const eventBus = useMemo(() => new EventBus(), []);
   const sendMessageDirectly = useCallback(
     async (text: string, attachments: QueuedMessage["attachments"]) => {
       if (!client || !session?.id) throw new Error("No active session.");
@@ -286,6 +289,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         setProject(nextProject);
         setActiveDirectory(savedDirectory);
         setStatus("connected");
+        void eventBus.start(nextClient);
         setAuthHeader(
           nextConfig.useAuth && password
             ? createAuthHeader(nextConfig.username, password)
@@ -321,10 +325,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [persistConfig],
+    [eventBus, persistConfig],
   );
 
   const disconnect = useCallback(async () => {
+    eventBus.stop();
     if (config) {
       clearClientCache(config);
     }
@@ -339,7 +344,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     setErrorMessage(null);
     setAuthHeader(null);
     setBasicAuthCredential(null);
-  }, [config]);
+  }, [config, eventBus]);
 
   const selectSession = useCallback(
     async (sessionId: string) => {
@@ -553,6 +558,12 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     })();
   }, [connect]);
 
+  useEffect(() => {
+    return () => {
+      eventBus.stop();
+    };
+  }, [eventBus]);
+
   const value = useMemo(
     () => ({
       client,
@@ -570,6 +581,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       basicAuthCredential,
       reconnectAttempt,
       queuedMessages: queue,
+      eventBus,
       setAgentActive,
       connect,
       disconnect,
@@ -614,6 +626,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       addContextAttachment,
       removeContextAttachment,
       clearContextAttachments,
+      eventBus,
     ],
   );
 
