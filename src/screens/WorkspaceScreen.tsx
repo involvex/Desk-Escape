@@ -1,7 +1,14 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import * as LocalAuthentication from "expo-local-authentication";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -31,6 +38,7 @@ import { SessionPicker } from "@/components/SessionPicker";
 import { TerminalPanel } from "@/components/TerminalPanel";
 import { UnifiedDiff } from "@/components/UnifiedDiff";
 import { WorkspaceToolbar } from "@/components/WorkspaceToolbar";
+import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { useConnection } from "@/context/ConnectionContext";
 import { useOrientation } from "@/context/OrientationContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -65,6 +73,37 @@ export function WorkspaceScreen() {
   const [slashDraft, setSlashDraft] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTargetId, setSearchTargetId] = useState<string | null>(null);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const authAttempted = useRef(false);
+
+  const { lockState, authenticate } = useBiometricLockContext();
+
+  useEffect(() => {
+    void (async () => {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      setBiometricAvailable(hasHardware && isEnrolled);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (
+      lockState !== "locked" ||
+      !biometricAvailable ||
+      authAttempted.current
+    ) {
+      return;
+    }
+
+    authAttempted.current = true;
+
+    void authenticate().then((success) => {
+      authAttempted.current = false;
+      if (!success) {
+        navigation.reset({ index: 0, routes: [{ name: "Connection" }] });
+      }
+    });
+  }, [lockState, authenticate, navigation, biometricAvailable]);
 
   const worktreeName = getWorktreeName(
     currentProject?.worktree ?? project?.worktree,
@@ -139,6 +178,17 @@ export function WorkspaceScreen() {
         },
         overflowText: {
           color: colors.text,
+          fontSize: typography.body,
+        },
+        gateOverlay: {
+          backgroundColor: colors.background,
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: spacing.md,
+        },
+        gateText: {
+          color: colors.textMuted,
           fontSize: typography.body,
         },
       }),
@@ -253,6 +303,12 @@ export function WorkspaceScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {lockState === "locked" && biometricAvailable ? (
+        <View style={styles.gateOverlay}>
+          <ActivityIndicator size="large" color={colors.textMuted} />
+          <Text style={styles.gateText}>Authenticate to access workspace</Text>
+        </View>
+      ) : null}
       <View style={styles.header}>
         <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
         <View style={styles.headerTextWrap}>

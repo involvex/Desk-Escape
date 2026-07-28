@@ -4,6 +4,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { BiometricLockProvider } from "@/context/BiometricLockContext";
 import { ConnectionProvider } from "@/context/ConnectionContext";
 import { OrientationProvider } from "@/context/OrientationContext";
 import { PermissionProvider } from "@/context/PermissionContext";
@@ -36,9 +37,11 @@ export default function App() {
               <PreferencesProvider>
                 <OrientationProvider>
                   <ConnectionProvider>
-                    <PermissionProvider>
-                      <AppShell />
-                    </PermissionProvider>
+                    <BiometricLockProvider>
+                      <PermissionProvider>
+                        <AppShell />
+                      </PermissionProvider>
+                    </BiometricLockProvider>
                   </ConnectionProvider>
                 </OrientationProvider>
               </PreferencesProvider>
