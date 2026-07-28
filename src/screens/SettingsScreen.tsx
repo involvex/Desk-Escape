@@ -59,6 +59,8 @@ export function SettingsScreen({ navigation }: Props) {
     setThemeName,
     fontScale,
     setFontScale,
+    syncTheme,
+    setSyncTheme,
   } = useTheme();
   const { mode: orientationMode, setMode: setOrientationMode } =
     useOrientation();
@@ -351,6 +353,18 @@ export function SettingsScreen({ navigation }: Props) {
                   <Text style={styles.chipText}>{option.label}</Text>
                 </Pressable>
               ))}
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Follow system dark/light mode</Text>
+              <Switch
+                onValueChange={(value) => void setSyncTheme(value)}
+                thumbColor={colors.text}
+                trackColor={{
+                  false: colors.border,
+                  true: colors.accentMuted,
+                }}
+                value={syncTheme}
+              />
             </View>
           </View>
 

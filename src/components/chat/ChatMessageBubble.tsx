@@ -121,7 +121,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
         isUser ? (
           <Text style={styles.messageText}>{text}</Text>
         ) : (
-          <MarkdownRenderer content={text} onRunCommand={onRunCommand} />
+          <MarkdownRenderer
+            content={text}
+            onRunCommand={onRunCommand}
+            defaultCollapsed
+          />
         )
       ) : null}
       {thinkingGroups.map((group, index) => {

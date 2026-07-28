@@ -1,23 +1,44 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Markdown, { type ASTNode } from "react-native-markdown-display";
-import { Copy, Check, Terminal } from "lucide-react-native";
+import {
+  ChevronDown,
+  ChevronRight,
+  Check,
+  Copy,
+  Terminal,
+} from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
 
 interface MarkdownRendererProps {
   content: string;
   onRunCommand?: (command: string) => void;
+  defaultCollapsed?: boolean;
 }
 
 interface CodeBlockProps {
   language: string | null;
   children: string;
   onRunCommand?: (command: string) => void;
+  defaultCollapsed?: boolean;
 }
 
-function CodeBlock({ language, children, onRunCommand }: CodeBlockProps) {
+function CodeBlock({
+  language,
+  children,
+  onRunCommand,
+  defaultCollapsed,
+}: CodeBlockProps) {
   const { colors, spacing, typography } = useTheme();
   const [copied, setCopied] = useState(false);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false);
 
   const trimmed = children.replace(/\n$/, "");
 
@@ -32,6 +53,10 @@ function CodeBlock({ language, children, onRunCommand }: CodeBlockProps) {
   const handleRun = useCallback(() => {
     onRunCommand?.(trimmed);
   }, [onRunCommand, trimmed]);
+
+  const handleToggleCollapse = useCallback(() => {
+    setCollapsed((v) => !v);
+  }, []);
 
   const styles = useMemo(
     () =>
@@ -74,6 +99,11 @@ function CodeBlock({ language, children, onRunCommand }: CodeBlockProps) {
           fontSize: typography.caption - 1,
           fontWeight: "600",
         },
+        collapseButton: {
+          alignItems: "center",
+          paddingHorizontal: 4,
+          paddingVertical: 2,
+        },
         codeScroll: {
           backgroundColor: colors.surface,
           maxHeight: 300,
@@ -95,6 +125,20 @@ function CodeBlock({ language, children, onRunCommand }: CodeBlockProps) {
       <View style={styles.header}>
         <Text style={styles.langText}>{language ?? "code"}</Text>
         <View style={styles.actions}>
+          <TouchableOpacity
+            onPress={handleToggleCollapse}
+            style={styles.collapseButton}
+            accessibilityRole="button"
+            accessibilityLabel={
+              collapsed ? "Expand code block" : "Collapse code block"
+            }
+          >
+            {collapsed ? (
+              <ChevronRight color={colors.textMuted} size={14} />
+            ) : (
+              <ChevronDown color={colors.textMuted} size={14} />
+            )}
+          </TouchableOpacity>
           {onRunCommand ? (
             <Pressable onPress={handleRun} style={styles.actionButton}>
               <Terminal color={colors.accent} size={12} />
@@ -111,11 +155,13 @@ function CodeBlock({ language, children, onRunCommand }: CodeBlockProps) {
           </Pressable>
         </View>
       </View>
-      <ScrollView horizontal style={styles.codeScroll}>
-        <Text selectable style={styles.code}>
-          {trimmed}
-        </Text>
-      </ScrollView>
+      {collapsed ? null : (
+        <ScrollView horizontal style={styles.codeScroll}>
+          <Text selectable style={styles.code}>
+            {trimmed}
+          </Text>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -123,6 +169,7 @@ function CodeBlock({ language, children, onRunCommand }: CodeBlockProps) {
 export const MarkdownRenderer = memo(function MarkdownRendererInner({
   content,
   onRunCommand,
+  defaultCollapsed,
 }: MarkdownRendererProps) {
   const { colors, spacing, typography } = useTheme();
 
@@ -248,12 +295,13 @@ export const MarkdownRenderer = memo(function MarkdownRendererInner({
           key={node.key}
           language={language}
           onRunCommand={onRunCommand}
+          defaultCollapsed={defaultCollapsed}
         >
           {node.content}
         </CodeBlock>
       );
     },
-    [onRunCommand],
+    [onRunCommand, defaultCollapsed],
   );
 
   const rules = useMemo(
@@ -275,6 +323,8 @@ function areEqual(
   next: MarkdownRendererProps,
 ): boolean {
   return (
-    prev.content === next.content && prev.onRunCommand === next.onRunCommand
+    prev.content === next.content &&
+    prev.onRunCommand === next.onRunCommand &&
+    prev.defaultCollapsed === next.defaultCollapsed
   );
 }
