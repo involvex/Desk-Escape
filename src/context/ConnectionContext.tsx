@@ -20,6 +20,8 @@ import {
   fetchCurrentProject,
   testConnection,
 } from "@/api/client";
+import { withDirectoryQuery } from "@/api/directory";
+import { bestSession } from "@/utils/session-ranking";
 import { useOfflineQueue } from "@/api/use-offline-queue";
 import { useReconnect } from "@/api/use-reconnect";
 import { CursorProvider } from "@/api/providers/cursor/provider";
@@ -44,7 +46,7 @@ const CONFIG_STORAGE_KEY = "@desk-escape/connection-config";
 const CONNECTION_DRAFT_KEY = "@desk-escape/connection-draft";
 const RECENT_HOSTS_KEY = "@desk-escape/recent-hosts";
 const PASSWORD_KEY_PREFIX = "@desk-escape/password:";
-const SESSION_KEY_PREFIX = "@desk-escape/session:";
+const SESSION_DIR_KEY_PREFIX = "@desk-escape/session-dir:";
 const DIRECTORY_KEY_PREFIX = "@desk-escape/directory:";
 
 interface ConnectionContextValue {
@@ -108,15 +110,26 @@ async function savePassword(baseUrl: string, password: string): Promise<void> {
   await SecureStore.setItemAsync(`${PASSWORD_KEY_PREFIX}${baseUrl}`, password);
 }
 
-async function saveLastSessionId(
-  baseUrl: string,
-  sessionId: string,
-): Promise<void> {
-  await AsyncStorage.setItem(`${SESSION_KEY_PREFIX}${baseUrl}`, sessionId);
+function sessionStorageKey(baseUrl: string, directory?: string | null): string {
+  const dir = directory?.trim() || "_default";
+  return `${SESSION_DIR_KEY_PREFIX}${baseUrl}:${dir}`;
 }
 
-async function loadLastSessionId(baseUrl: string): Promise<string | undefined> {
-  const value = await AsyncStorage.getItem(`${SESSION_KEY_PREFIX}${baseUrl}`);
+async function saveDirectorySessionId(
+  baseUrl: string,
+  directory: string | null | undefined,
+  sessionId: string,
+): Promise<void> {
+  const key = sessionStorageKey(baseUrl, directory);
+  await AsyncStorage.setItem(key, sessionId);
+}
+
+async function loadDirectorySessionId(
+  baseUrl: string,
+  directory: string | null | undefined,
+): Promise<string | undefined> {
+  const key = sessionStorageKey(baseUrl, directory);
+  const value = await AsyncStorage.getItem(key);
   return value ?? undefined;
 }
 
@@ -310,7 +323,10 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
           initialProject?.worktree ??
           null;
 
-        const savedSessionId = await loadLastSessionId(nextConfig.baseUrl);
+        const savedSessionId = await loadDirectorySessionId(
+          nextConfig.baseUrl,
+          savedDirectory,
+        );
         const nextSession = await ensureSession(
           nextClient,
           savedSessionId,
@@ -343,7 +359,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
             : null,
         );
 
-        await saveLastSessionId(nextConfig.baseUrl, nextSession.id);
+        await saveDirectorySessionId(
+          nextConfig.baseUrl,
+          savedDirectory,
+          nextSession.id,
+        );
         if (savedDirectory) {
           await saveLastDirectory(nextConfig.baseUrl, savedDirectory);
         }
@@ -371,7 +391,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [eventBus, persistConfig, cursorProvider, openCodeProvider],
+    [config, eventBus, persistConfig, cursorProvider, openCodeProvider],
   );
 
   const disconnect = useCallback(async () => {
@@ -410,9 +430,13 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         updatedAt: session.updatedAt,
         status: session.status,
       } as unknown as Session);
-      await saveLastSessionId(config?.baseUrl ?? "", sessionId);
+      await saveDirectorySessionId(
+        config?.baseUrl ?? "",
+        activeDirectory,
+        sessionId,
+      );
     },
-    [provider, config],
+    [provider, config, activeDirectory],
   );
 
   const selectProject = useCallback(
@@ -428,19 +452,39 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         (await provider.getCurrentProject()) as Project | null;
       setProject(nextProject);
 
-      const sessions = await provider.listSessions();
-      const existing = sessions[0];
+      // 1. Try directory-scoped saved session
+      const savedSessionId = await loadDirectorySessionId(
+        config.baseUrl,
+        worktree,
+      );
 
-      if (existing) {
-        setSession({
-          id: existing.id,
-          title: existing.title,
-          createdAt: existing.createdAt,
-          updatedAt: existing.updatedAt,
-          status: existing.status,
-        } as unknown as Session);
-        await saveLastSessionId(config.baseUrl, existing.id);
+      if (savedSessionId) {
+        try {
+          const result = await provider.selectSession(savedSessionId);
+          setSession({
+            id: result.id,
+            title: result.title,
+            createdAt: result.createdAt,
+            updatedAt: result.updatedAt,
+            status: result.status,
+          } as unknown as Session);
+          setContextAttachments([]);
+          await queryClient.invalidateQueries();
+          return;
+        } catch {
+          // Saved session no longer exists — fall through to ranking
+        }
+      }
+
+      // 2. Fetch all sessions for this directory and pick the best one
+      const sessions = await client?.session.list(withDirectoryQuery(worktree));
+      const ranked = bestSession((sessions?.data ?? []) as Session[]);
+
+      if (ranked) {
+        setSession(ranked);
+        await saveDirectorySessionId(config.baseUrl, worktree, ranked.id);
       } else {
+        // 3. No sessions exist — create one
         const created = await provider.createSession("Desk Escape");
         setSession({
           id: created.id,
@@ -449,7 +493,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
           updatedAt: created.updatedAt,
           status: created.status,
         } as unknown as Session);
-        await saveLastSessionId(config.baseUrl, created.id);
+        await saveDirectorySessionId(config.baseUrl, worktree, created.id);
       }
 
       setContextAttachments([]);
@@ -472,11 +516,15 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         updatedAt: session.updatedAt,
         status: session.status,
       } as unknown as Session);
-      await saveLastSessionId(config?.baseUrl ?? "", session.id);
+      await saveDirectorySessionId(
+        config?.baseUrl ?? "",
+        activeDirectory,
+        session.id,
+      );
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
       return session as unknown as Session;
     },
-    [config, provider, queryClient],
+    [config, provider, queryClient, activeDirectory],
   );
 
   const deleteSession = useCallback(
@@ -498,7 +546,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
             updatedAt: next.updatedAt,
             status: next.status,
           } as unknown as Session);
-          await saveLastSessionId(config?.baseUrl ?? "", next.id);
+          await saveDirectorySessionId(
+            config?.baseUrl ?? "",
+            activeDirectory,
+            next.id,
+          );
         } else {
           const created = await createSession();
           setSession(created);
@@ -507,7 +559,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
-    [config, provider, queryClient, session?.id, createSession],
+    [
+      config,
+      provider,
+      queryClient,
+      session?.id,
+      createSession,
+      activeDirectory,
+    ],
   );
 
   const testServerConnection = useCallback(
@@ -677,13 +736,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       contextAttachments,
       createSession,
       cursorConfig,
-      cursorProvider,
       deleteSession,
       disconnect,
       enqueue,
       clearQueue,
       errorMessage,
-      openCodeProvider,
       provider,
       providerType,
       project,
@@ -693,7 +750,6 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       reconnectAttempt,
       selectProject,
       selectSession,
-      setAgentActive,
       status,
       session,
       testServerConnection,

@@ -1,5 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/client";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,8 +20,15 @@ interface SessionPickerProps {
   onClose: () => void;
 }
 
-function formatSessionTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
+function timeAgo(timestamp: number, now: number): string {
+  const seconds = Math.floor((now - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 export function SessionPicker({ visible, onClose }: SessionPickerProps) {
@@ -29,6 +36,7 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
   const { sessionId, selectSession, createSession, deleteSession } =
     useConnection();
   const { data: sessions = [], isLoading, refetch } = useSessions();
+  const [now] = useState(() => Date.now());
 
   const styles = useMemo(
     () =>
@@ -86,6 +94,43 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           color: colors.textMuted,
           fontSize: typography.caption,
           marginTop: spacing.xs,
+        },
+        activityRow: {
+          alignItems: "center",
+          flexDirection: "row",
+          gap: spacing.sm,
+          marginTop: spacing.xs,
+        },
+        activityDot: {
+          borderRadius: 999,
+          height: 6,
+          width: 6,
+        },
+        activityLabel: {
+          color: colors.textMuted,
+          fontSize: 10,
+          fontWeight: "500",
+        },
+        changeBadge: {
+          backgroundColor: colors.accentMuted,
+          borderRadius: 6,
+          paddingHorizontal: 6,
+          paddingVertical: 2,
+        },
+        changeText: {
+          color: colors.accent,
+          fontSize: 10,
+          fontWeight: "600",
+        },
+        costBadge: {
+          backgroundColor: colors.surfaceElevated,
+          borderRadius: 6,
+          paddingHorizontal: 6,
+          paddingVertical: 2,
+        },
+        costText: {
+          color: colors.textMuted,
+          fontSize: 10,
         },
         createButton: {
           alignItems: "center",
@@ -169,6 +214,12 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
               }
               renderItem={({ item }) => {
                 const isActive = item.id === sessionId;
+                const totalChanges =
+                  (item.summary?.additions ?? 0) +
+                  (item.summary?.deletions ?? 0);
+                const minutesAgo = (now - item.time.updated) / 60_000;
+                const isRecent = minutesAgo < 5;
+
                 return (
                   <View
                     style={[styles.item, isActive ? styles.itemActive : null]}
@@ -180,9 +231,27 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
                       <Text style={styles.itemTitle}>
                         {item.title || "Untitled session"}
                       </Text>
-                      <Text style={styles.itemMeta}>
-                        Updated {formatSessionTime(item.time.updated)}
-                      </Text>
+                      <View style={styles.activityRow}>
+                        {isRecent ? (
+                          <View
+                            style={[
+                              styles.activityDot,
+                              { backgroundColor: colors.success },
+                            ]}
+                          />
+                        ) : null}
+                        <Text style={styles.activityLabel}>
+                          {timeAgo(item.time.updated, now)}
+                        </Text>
+                        {totalChanges > 0 ? (
+                          <View style={styles.changeBadge}>
+                            <Text style={styles.changeText}>
+                              +{item.summary?.additions ?? 0}/ -
+                              {item.summary?.deletions ?? 0}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
                     </Pressable>
                     <Pressable onPress={() => handleDelete(item)}>
                       <Trash2 color={colors.danger} size={18} />

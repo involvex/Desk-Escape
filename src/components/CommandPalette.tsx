@@ -16,6 +16,17 @@ import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { ThemeName } from "@/types/opencode";
 
+function timeAgo(timestamp: number, now: number): string {
+  const seconds = Math.floor((now - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export type PaletteAction =
   | { type: "session"; session: Session }
   | { type: "project"; project: Project }
@@ -47,6 +58,7 @@ export function CommandPalette({
   const { data: projects = [] } = useProjects();
   const { data: commands = [] } = useCommands();
   const [query, setQuery] = useState("");
+  const [now] = useState(() => Date.now());
 
   const appActions: PaletteAction[] = useMemo(
     () => [
@@ -142,6 +154,22 @@ export function CommandPalette({
           fontSize: typography.caption,
           marginTop: 2,
         },
+        activityDot: {
+          borderRadius: 3,
+          height: 6,
+          marginRight: spacing.xs,
+          marginTop: 4,
+          width: 6,
+        },
+        itemTitleRow: {
+          flexDirection: "row",
+          alignItems: "center",
+        },
+        timeLabel: {
+          color: colors.textMuted,
+          fontSize: 10,
+          marginLeft: "auto",
+        },
         empty: {
           color: colors.textMuted,
           fontSize: typography.body,
@@ -228,14 +256,42 @@ export function CommandPalette({
                 No matches for &ldquo;{query}&rdquo;.
               </Text>
             }
-            renderItem={({ item }) => (
-              <Pressable onPress={() => handleSelect(item)} style={styles.item}>
-                <Text style={styles.itemTitle}>{getLabel(item)}</Text>
-                <Text numberOfLines={2} style={styles.itemMeta}>
-                  {getMeta(item)}
-                </Text>
-              </Pressable>
-            )}
+            renderItem={({ item }) => {
+              const isActive =
+                item.type === "session" &&
+                item.session.time &&
+                (now - item.session.time.updated) / 60_000 < 5;
+              return (
+                <Pressable
+                  onPress={() => handleSelect(item)}
+                  style={styles.item}
+                >
+                  <View style={styles.itemTitleRow}>
+                    {item.type === "session" && (
+                      <View
+                        style={[
+                          styles.activityDot,
+                          {
+                            backgroundColor: isActive
+                              ? colors.success
+                              : "transparent",
+                          },
+                        ]}
+                      />
+                    )}
+                    <Text style={styles.itemTitle}>{getLabel(item)}</Text>
+                    {item.type === "session" && item.session.time && (
+                      <Text style={styles.timeLabel}>
+                        {timeAgo(item.session.time.updated, now)}
+                      </Text>
+                    )}
+                  </View>
+                  <Text numberOfLines={2} style={styles.itemMeta}>
+                    {getMeta(item)}
+                  </Text>
+                </Pressable>
+              );
+            }}
           />
         </Pressable>
       </Pressable>

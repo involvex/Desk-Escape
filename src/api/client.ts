@@ -1,6 +1,7 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/client";
 import { createOpencodeClient } from "@opencode-ai/sdk/client";
 import { withDirectoryQuery } from "@/api/directory";
+import { bestSession } from "@/utils/session-ranking";
 import type {
   ConnectionConfig,
   HealthResult,
@@ -9,6 +10,7 @@ import type {
 
 const DEFAULT_PORT = 4096;
 const DEFAULT_USERNAME = "opencode";
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 const clientCache = new Map<string, OpencodeClient>();
 
@@ -24,17 +26,43 @@ export function createAuthHeader(username: string, password: string): string {
   return `Basic ${encodeBasicAuth(username, password)}`;
 }
 
+function withTimeout(fetchFn: typeof fetch, timeoutMs: number): typeof fetch {
+  return (input: RequestInfo | URL, init?: RequestInit) => {
+    const controller = new AbortController();
+    const signal = init?.signal
+      ? joinAbortSignals(init.signal, controller.signal)
+      : controller.signal;
+
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    return fetchFn(input, { ...init, signal }).finally(() => {
+      clearTimeout(timer);
+    });
+  };
+}
+
+function joinAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  a.addEventListener("abort", onAbort, { once: true });
+  b.addEventListener("abort", onAbort, { once: true });
+  return controller.signal;
+}
+
 function createAuthenticatedFetch(
   username: string,
   password: string,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): typeof fetch {
   const authorization = createAuthHeader(username, password);
 
-  return (input: RequestInfo | URL, init?: RequestInit) => {
+  const baseFetch: typeof fetch = (input, init) => {
     const headers = new Headers(init?.headers);
     headers.set("Authorization", authorization);
     return fetch(input, { ...init, headers });
   };
+
+  return timeoutMs > 0 ? withTimeout(baseFetch, timeoutMs) : baseFetch;
 }
 
 export function parseTarget(input: string): ParsedTarget {
@@ -158,7 +186,7 @@ export async function ensureSession(
   }
 
   const sessions = await client.session.list(dirQuery);
-  const existing = sessions.data?.[0];
+  const existing = bestSession(sessions.data ?? []);
 
   if (existing) {
     return existing;
