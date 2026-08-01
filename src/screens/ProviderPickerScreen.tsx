@@ -1,5 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Settings } from "lucide-react-native";
 import { useCallback, useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "@/context/ThemeContext";
@@ -76,12 +77,30 @@ export function ProviderPickerScreen() {
           fontSize: typography.caption,
           fontWeight: "600",
         },
+        header: {
+          flexDirection: "row",
+          justifyContent: "flex-end",
+          marginBottom: spacing.md,
+        },
+        settingsButton: {
+          padding: spacing.sm,
+        },
       }),
     [colors, spacing, typography],
   );
 
   return (
     <View style={styles.container}>
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => navigation.navigate("Settings")}
+          style={styles.settingsButton}
+          hitSlop={8}
+        >
+          <Settings color={colors.textMuted} size={22} />
+        </Pressable>
+      </View>
+
       <Text style={styles.title}>Desk Escape</Text>
       <Text style={styles.subtitle}>Choose your agent backend</Text>
 
