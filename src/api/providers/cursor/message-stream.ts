@@ -62,8 +62,6 @@ export function applyCursorStreamEvent(
 ): MessageWithParts[] | null {
   switch (event.type) {
     case "assistant": {
-      const msgId = generateId();
-      const partId = generateId();
       return [
         ...messages,
         {

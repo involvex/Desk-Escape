@@ -160,12 +160,20 @@ export async function testConnection(
   password?: string,
 ): Promise<HealthResult> {
   const client = createAuthenticatedClient(config, password);
-  const configResult = await client.config.get();
-
-  return {
-    healthy: Boolean(configResult.data),
-    version: undefined,
-  };
+  try {
+    const configResult = await client.config.get();
+    if (configResult.error) {
+      throw new Error(
+        configResult.error instanceof Error
+          ? configResult.error.message
+          : "OpenCode server returned an error.",
+      );
+    }
+    return { healthy: Boolean(configResult.data) };
+  } catch (error) {
+    if (error instanceof Error) throw error;
+    throw new Error("Network request failed.");
+  }
 }
 
 export async function ensureSession(

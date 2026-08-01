@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 
-const BIOMETRIC_KEY = "@desk-escape/biometric-enabled";
+const BIOMETRIC_KEY = "desk-escape.biometric-enabled";
 
 async function setBiometricEnabled(enabled: boolean): Promise<void> {
   await SecureStore.setItemAsync(BIOMETRIC_KEY, String(enabled));

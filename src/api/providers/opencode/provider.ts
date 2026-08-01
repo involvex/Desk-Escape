@@ -9,12 +9,9 @@ import type {
 import type { MessageWithParts } from "@/types/opencode";
 import {
   clearClientCache,
-  configToTargetUrl,
   createAuthenticatedClient,
-  ensureSession,
   fetchCurrentProject,
   fetchProjectList,
-  getWorktreeName,
   testConnection as testOpenCodeConnection,
 } from "./client";
 import { EventBus } from "./event-bus";

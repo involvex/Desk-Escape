@@ -70,6 +70,6 @@ export function useCursorTestConnection(config: CursorConnectionConfig) {
       const provider = new CursorProvider();
       return provider.testConnection(config, password);
     },
-    [],
+    [config],
   );
 }

@@ -1,21 +1,7 @@
-import type {
-  Agent,
-  Message,
-  Part,
-  Project,
-  Session,
-  ToolPart,
-} from "@opencode-ai/sdk/client";
+import type { Message, Part } from "@opencode-ai/sdk/client";
 
 export type AgentProviderType = "opencode" | "cursor";
-export {
-  Agent,
-  Message,
-  Part,
-  Project,
-  Session,
-  ToolPart,
-} from "@opencode-ai/sdk/client";
+export { Message, Part, ToolPart } from "@opencode-ai/sdk/client";
 
 export type ThemeName =
   | "oled-black"

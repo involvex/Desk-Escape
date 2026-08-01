@@ -18,25 +18,11 @@ export function AgentPicker({
   onClose: () => void;
   visible: boolean;
 }) {
-  const { providerType, provider, cursorConfig } = useConnection();
-  const { colors, spacing, typography } = useTheme();
-  const [agents, setAgents] = useState<ProviderSession[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { providerType, provider } = useConnection();
+  const { colors } = useTheme();
+  const [agents] = useState<ProviderSession[]>([]);
+  const [loading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const loadAgents = useCallback(async () => {
-    if (providerType !== "cursor" || !provider) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const list = await provider.listSessions();
-      setAgents(list);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load agents.");
-    } finally {
-      setLoading(false);
-    }
-  }, [providerType, provider]);
 
   const handleSelect = useCallback(
     async (agent: ProviderSession) => {

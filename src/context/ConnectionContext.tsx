@@ -13,6 +13,7 @@ import {
 } from "react";
 import { EventBus } from "@/api/event-bus";
 import {
+  buildConnectionConfig,
   clearClientCache,
   createAuthenticatedClient,
   createAuthHeader,
@@ -45,7 +46,7 @@ import type {
 const CONFIG_STORAGE_KEY = "@desk-escape/connection-config";
 const CONNECTION_DRAFT_KEY = "@desk-escape/connection-draft";
 const RECENT_HOSTS_KEY = "@desk-escape/recent-hosts";
-const PASSWORD_KEY_PREFIX = "@desk-escape/password:";
+const PASSWORD_KEY_PREFIX = "desk-escape.password.";
 const SESSION_DIR_KEY_PREFIX = "@desk-escape/session-dir:";
 const DIRECTORY_KEY_PREFIX = "@desk-escape/directory:";
 
@@ -81,6 +82,15 @@ interface ConnectionContextValue {
     config: AnyConnectionConfig,
     password?: string,
   ) => Promise<{ healthy: boolean; version?: string }>;
+  saveSettings: (
+    draft: ConnectionDraft,
+    password: string | null,
+  ) => Promise<void>;
+  reconnectWithConfig: (
+    config: AnyConnectionConfig,
+    password?: string,
+  ) => Promise<void>;
+  deleteRecentHost: (baseUrl: string) => Promise<void>;
   addContextAttachment: (path: string) => void;
   removeContextAttachment: (id: string) => void;
   clearContextAttachments: () => void;
@@ -95,11 +105,16 @@ const ConnectionContext = createContext<ConnectionContextValue | undefined>(
   undefined,
 );
 
+function secureStoreKey(suffix: string): string {
+  return suffix.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 async function loadPassword(baseUrl: string): Promise<string | undefined> {
   try {
     return (
-      (await SecureStore.getItemAsync(`${PASSWORD_KEY_PREFIX}${baseUrl}`)) ??
-      undefined
+      (await SecureStore.getItemAsync(
+        secureStoreKey(`${PASSWORD_KEY_PREFIX}${baseUrl}`),
+      )) ?? undefined
     );
   } catch {
     return undefined;
@@ -107,7 +122,10 @@ async function loadPassword(baseUrl: string): Promise<string | undefined> {
 }
 
 async function savePassword(baseUrl: string, password: string): Promise<void> {
-  await SecureStore.setItemAsync(`${PASSWORD_KEY_PREFIX}${baseUrl}`, password);
+  await SecureStore.setItemAsync(
+    secureStoreKey(`${PASSWORD_KEY_PREFIX}${baseUrl}`),
+    password,
+  );
 }
 
 function sessionStorageKey(baseUrl: string, directory?: string | null): string {
@@ -147,7 +165,9 @@ async function loadLastDirectory(baseUrl: string): Promise<string | undefined> {
 
 async function deletePassword(baseUrl: string): Promise<void> {
   try {
-    await SecureStore.deleteItemAsync(`${PASSWORD_KEY_PREFIX}${baseUrl}`);
+    await SecureStore.deleteItemAsync(
+      secureStoreKey(`${PASSWORD_KEY_PREFIX}${baseUrl}`),
+    );
   } catch {
     // Ignore missing secure entries.
   }
@@ -268,6 +288,33 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(RECENT_HOSTS_KEY, JSON.stringify(updated));
     setRecentHosts(updated);
   }, []);
+
+  const saveSettings = useCallback(
+    async (draft: ConnectionDraft, password: string | null) => {
+      await saveConnectionDraft(draft);
+      const parsed = buildConnectionConfig(draft.target, {
+        username: draft.username,
+        useAuth: draft.useAuth,
+      });
+      await AsyncStorage.setItem(
+        CONFIG_STORAGE_KEY,
+        JSON.stringify({
+          ...parsed,
+          label: parsed.host,
+          lastConnectedAt: new Date().toISOString(),
+        }),
+      );
+      if (draft.useAuth && password && password.length > 0) {
+        try {
+          await savePassword(parsed.baseUrl, password);
+        } catch {
+          // If the draft target cannot be parsed, skip password write; the
+          // user will see a connect error and can correct the URL.
+        }
+      }
+    },
+    [],
+  );
 
   const connect = useCallback(
     async (nextConfig: AnyConnectionConfig, password?: string) => {
@@ -621,10 +668,35 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   }, [status, queue.length, flushQueue]);
 
   const reconnect = useCallback(() => {
-    if (!config) return;
-    setStatus("error");
-    setErrorMessage(null);
-  }, [config]);
+    // Kept for API compatibility. The new flow is to call reconnectWithConfig
+    // from the ConnectionScreen with the current form values, so we no-op
+    // here to avoid blasting away the previous errorMessage with a stale
+    // closure value.
+  }, []);
+
+  const reconnectWithConfig = useCallback(
+    async (nextConfig: AnyConnectionConfig, password?: string) => {
+      await connect(nextConfig, password);
+    },
+    [connect],
+  );
+
+  const deleteRecentHost = useCallback(
+    async (baseUrl: string) => {
+      const stored = await AsyncStorage.getItem(RECENT_HOSTS_KEY);
+      const existing: StoredConnectionConfig[] = stored
+        ? (JSON.parse(stored) as StoredConnectionConfig[])
+        : [];
+      const updated = existing.filter((item) => item.baseUrl !== baseUrl);
+      await AsyncStorage.setItem(RECENT_HOSTS_KEY, JSON.stringify(updated));
+      setRecentHosts(updated);
+      await deletePassword(baseUrl);
+      if (config?.baseUrl === baseUrl) {
+        await AsyncStorage.removeItem(CONFIG_STORAGE_KEY);
+      }
+    },
+    [config],
+  );
 
   const addContextAttachment = useCallback((path: string) => {
     setContextAttachments((current) => {
@@ -668,7 +740,26 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const parsed = JSON.parse(storedConfig) as StoredConnectionConfig;
+      let parsed: StoredConnectionConfig;
+      try {
+        parsed = JSON.parse(storedConfig) as StoredConnectionConfig;
+      } catch {
+        await AsyncStorage.removeItem(CONFIG_STORAGE_KEY);
+        return;
+      }
+
+      if (
+        !parsed ||
+        typeof parsed.baseUrl !== "string" ||
+        typeof parsed.host !== "string" ||
+        typeof parsed.port !== "number" ||
+        typeof parsed.username !== "string" ||
+        typeof parsed.useAuth !== "boolean"
+      ) {
+        await AsyncStorage.removeItem(CONFIG_STORAGE_KEY);
+        return;
+      }
+
       if (!parsed.type) {
         parsed.type = "opencode";
       }
@@ -678,8 +769,13 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
       try {
         await connect(parsed as AnyConnectionConfig, password);
-      } catch {
-        setStatus("disconnected");
+      } catch (error) {
+        setStatus("error");
+        setErrorMessage(
+          error instanceof Error
+            ? `Saved host unreachable: ${error.message}`
+            : "Saved host unreachable.",
+        );
       }
     })();
   }, [connect]);
@@ -720,6 +816,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       createSession,
       deleteSession,
       testServerConnection,
+      saveSettings,
+      reconnectWithConfig,
+      deleteRecentHost,
       addContextAttachment,
       removeContextAttachment,
       clearContextAttachments,
@@ -748,6 +847,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       recentHosts,
       reconnect,
       reconnectAttempt,
+      reconnectWithConfig,
+      saveSettings,
+      deleteRecentHost,
       selectProject,
       selectSession,
       status,

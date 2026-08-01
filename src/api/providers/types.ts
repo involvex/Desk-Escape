@@ -1,11 +1,4 @@
-import type {
-  Message,
-  Part,
-  ToolPart,
-  Agent,
-  Project,
-  Session,
-} from "@opencode-ai/sdk/client";
+import type { Message, Part } from "@opencode-ai/sdk/client";
 
 export type AgentProviderType = "opencode" | "cursor";
 

@@ -11,7 +11,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Check, Lock, Save, Server, Wifi, X } from "lucide-react-native";
+import {
+  Check,
+  Lock,
+  RefreshCw,
+  Save,
+  Server,
+  Trash2,
+  Wifi,
+  X,
+} from "lucide-react-native";
 import { buildConnectionConfig, configToTargetUrl } from "@/api/client";
 import {
   loadConnectionDraft,
@@ -30,8 +39,16 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Connection">;
 export function ConnectionScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, spacing, typography } = useTheme();
-  const { connect, testServerConnection, recentHosts, errorMessage } =
-    useConnection();
+  const {
+    connect,
+    testServerConnection,
+    recentHosts,
+    errorMessage,
+    saveSettings,
+    reconnectWithConfig,
+    deleteRecentHost,
+    status,
+  } = useConnection();
 
   const [target, setTarget] = useState("http://localhost:4096");
   const [useAuth, setUseAuth] = useState(false);
@@ -95,15 +112,15 @@ export function ConnectionScreen() {
     })();
   }, [recentHosts]);
 
-  const persistDraft = useCallback(
+  const persistSettings = useCallback(
     async (showFeedback = false) => {
-      await saveConnectionDraft(draftPayload);
+      await saveSettings(draftPayload, password || null);
       if (showFeedback) {
         setSaveMessage("Connection settings saved.");
         setTimeout(() => setSaveMessage(null), 2000);
       }
     },
-    [draftPayload],
+    [draftPayload, password, saveSettings],
   );
 
   useEffect(() => {
@@ -112,7 +129,7 @@ export function ConnectionScreen() {
     }
 
     saveTimer.current = setTimeout(() => {
-      void persistDraft();
+      void persistSettings();
     }, 600);
 
     return () => {
@@ -120,7 +137,7 @@ export function ConnectionScreen() {
         clearTimeout(saveTimer.current);
       }
     };
-  }, [persistDraft]);
+  }, [persistSettings]);
 
   const styles = useMemo(
     () =>
@@ -210,10 +227,12 @@ export function ConnectionScreen() {
           marginTop: spacing.lg,
         },
         recentItem: {
+          alignItems: "center",
           backgroundColor: colors.surface,
           borderColor: colors.border,
           borderRadius: 12,
           borderWidth: 1,
+          flexDirection: "row",
           marginBottom: spacing.sm,
           padding: spacing.md,
         },
@@ -236,6 +255,12 @@ export function ConnectionScreen() {
           color: colors.success,
           fontSize: typography.caption,
           marginBottom: spacing.md,
+        },
+        deleteButton: {
+          alignItems: "center",
+          justifyContent: "center",
+          marginLeft: spacing.sm,
+          padding: spacing.xs,
         },
       }),
     [colors, spacing, typography],
@@ -279,14 +304,28 @@ export function ConnectionScreen() {
     try {
       const config = buildConfig() as unknown as AnyConnectionConfig;
       await connect(config, password);
-      await persistDraft();
+      await persistSettings();
       navigation.replace("Workspace");
     } catch {
       // Error state is handled in context.
     } finally {
       setIsConnecting(false);
     }
-  }, [buildConfig, connect, navigation, password, persistDraft]);
+  }, [buildConfig, connect, navigation, password, persistSettings]);
+
+  const handleReconnect = useCallback(async () => {
+    setIsConnecting(true);
+    try {
+      const config = buildConfig() as unknown as AnyConnectionConfig;
+      await reconnectWithConfig(config, password);
+      await persistSettings();
+      navigation.replace("Workspace");
+    } catch {
+      // Error state is handled in context; the inline banner shows it.
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [buildConfig, navigation, password, persistSettings, reconnectWithConfig]);
 
   const handleRecentPress = useCallback(
     async (baseUrl: string) => {
@@ -303,6 +342,19 @@ export function ConnectionScreen() {
       });
     },
     [username],
+  );
+
+  const handleDeleteHost = useCallback(
+    async (baseUrl: string) => {
+      await deleteRecentHost(baseUrl);
+      if (target === baseUrl) {
+        setTarget("http://localhost:4096");
+        setUseAuth(false);
+        setUsername("opencode");
+        setPassword("");
+      }
+    },
+    [deleteRecentHost, target],
   );
 
   const statusIcon = useMemo(() => {
@@ -400,7 +452,7 @@ export function ConnectionScreen() {
       </Pressable>
 
       <Pressable
-        onPress={() => void persistDraft(true)}
+        onPress={() => void persistSettings(true)}
         style={[styles.button, styles.buttonSecondary]}
       >
         <Save color={colors.text} size={18} />
@@ -423,18 +475,45 @@ export function ConnectionScreen() {
         )}
       </Pressable>
 
+      {status === "error" ? (
+        <Pressable
+          disabled={isConnecting}
+          onPress={() => void handleReconnect()}
+          style={[styles.button, styles.buttonSecondary]}
+        >
+          {isConnecting ? (
+            <ActivityIndicator color={colors.text} />
+          ) : (
+            <>
+              <RefreshCw color={colors.text} size={18} />
+              <Text style={[styles.buttonText, styles.buttonSecondaryText]}>
+                Reconnect with current values
+              </Text>
+            </>
+          )}
+        </Pressable>
+      ) : null}
+
       {recentHosts.length > 0 ? (
         <>
-          <Text style={styles.recentTitle}>Recent hosts</Text>
+          <Text style={styles.recentTitle}>Saved connections</Text>
           {recentHosts.map((host) => (
-            <Pressable
-              key={host.baseUrl}
-              onPress={() => void handleRecentPress(host.baseUrl)}
-              style={styles.recentItem}
-            >
-              <Text style={styles.recentHost}>{host.label}</Text>
-              <Text style={styles.recentMeta}>{host.baseUrl}</Text>
-            </Pressable>
+            <View key={host.baseUrl} style={styles.recentItem}>
+              <Pressable
+                onPress={() => void handleRecentPress(host.baseUrl)}
+                style={{ flex: 1 }}
+              >
+                <Text style={styles.recentHost}>{host.label}</Text>
+                <Text style={styles.recentMeta}>{host.baseUrl}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void handleDeleteHost(host.baseUrl)}
+                hitSlop={12}
+                style={styles.deleteButton}
+              >
+                <Trash2 color={colors.danger} size={16} />
+              </Pressable>
+            </View>
           ))}
         </>
       ) : null}
