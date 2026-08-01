@@ -1,0 +1,171 @@
+# Review package: 0d4ec2e..11632e7
+
+## Commits
+11632e7 feat: add fontType state/persistence to ThemeContext
+
+## Files changed
+ src/context/ThemeContext.tsx | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+## Diff
+diff --git a/src/context/ThemeContext.tsx b/src/context/ThemeContext.tsx
+index 6f94b58..5386568 100644
+--- a/src/context/ThemeContext.tsx
++++ b/src/context/ThemeContext.tsx
+@@ -3,24 +3,25 @@ import * as SystemUI from "expo-system-ui";
+ import {
+   createContext,
+   useCallback,
+   useContext,
+   useEffect,
+   useMemo,
+   useState,
+   type ReactNode,
+ } from "react";
+ import { useColorScheme } from "react-native";
+-import type { FontScale, ThemeName } from "@/types/opencode";
++import type { FontScale, FontType, ThemeName } from "@/types/opencode";
+ 
+ const THEME_STORAGE_KEY = "@desk-escape/theme";
+ const SYNC_THEME_KEY = "@desk-escape/sync-theme";
++const FONT_TYPE_KEY = "@desk-escape/font-type";
+ 
+ export interface ThemeColors {
+   background: string;
+   surface: string;
+   surfaceElevated: string;
+   border: string;
+   text: string;
+   textMuted: string;
+   accent: string;
+   accentMuted: string;
+@@ -274,57 +275,66 @@ export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
+ 
+ interface ThemeContextValue {
+   themeName: ThemeName;
+   theme: ThemeDefinition;
+   setThemeName: (name: ThemeName) => void;
+   colors: ThemeColors;
+   spacing: ThemeSpacing;
+   typography: ThemeTypography;
+   fontScale: FontScale;
+   setFontScale: (scale: FontScale) => void;
++  fontType: FontType;
++  setFontType: (type: FontType) => void;
+   syncTheme: boolean;
+   setSyncTheme: (enabled: boolean) => Promise<void>;
+ }
+ 
+ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+ 
+ const FONT_SCALE_KEY = "@desk-escape/font-scale";
+ 
+ export function ThemeProvider({ children }: { children: ReactNode }) {
+   const [themeName, setThemeNameState] = useState<ThemeName>("oled-black");
+   const [fontScale, setFontScaleState] = useState<FontScale>(1);
++  const [fontType, setFontTypeState] = useState<FontType>("system");
+   const [syncTheme, setSyncThemeState] = useState(true);
+ 
+   useEffect(() => {
+     void (async () => {
+-      const [storedTheme, storedScale, storedSync] = await Promise.all([
+-        AsyncStorage.getItem(THEME_STORAGE_KEY),
+-        AsyncStorage.getItem(FONT_SCALE_KEY),
+-        AsyncStorage.getItem(SYNC_THEME_KEY),
+-      ]);
++      const [storedTheme, storedScale, storedSync, storedFontType] =
++        await Promise.all([
++          AsyncStorage.getItem(THEME_STORAGE_KEY),
++          AsyncStorage.getItem(FONT_SCALE_KEY),
++          AsyncStorage.getItem(SYNC_THEME_KEY),
++          AsyncStorage.getItem(FONT_TYPE_KEY),
++        ]);
+ 
+       if (storedTheme && themeNames.includes(storedTheme as ThemeName)) {
+         setThemeNameState(storedTheme as ThemeName);
+       }
+ 
+       if (
+         storedScale === "0.85" ||
+         storedScale === "1" ||
+         storedScale === "1.15" ||
+         storedScale === "1.3"
+       ) {
+         setFontScaleState(Number(storedScale) as FontScale);
+       }
+ 
+       if (storedSync !== null) {
+         setSyncThemeState(storedSync === "true");
+       }
++
++      if (storedFontType === "system" || storedFontType === "mono") {
++        setFontTypeState(storedFontType as FontType);
++      }
+     })();
+   }, []);
+ 
+   const colorScheme = useColorScheme();
+ 
+   useEffect(() => {
+     if (syncTheme && colorScheme) {
+       const target = colorScheme === "dark" ? "dev-dark" : "dev-light";
+       if (themeName !== target) {
+         // eslint-disable-next-line react-hooks/set-state-in-effect
+@@ -337,20 +347,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
+   const setThemeName = useCallback((name: ThemeName) => {
+     setThemeNameState(name);
+     void AsyncStorage.setItem(THEME_STORAGE_KEY, name);
+   }, []);
+ 
+   const setFontScale = useCallback((scale: FontScale) => {
+     setFontScaleState(scale);
+     void AsyncStorage.setItem(FONT_SCALE_KEY, String(scale));
+   }, []);
+ 
++  const setFontType = useCallback((type: FontType) => {
++    setFontTypeState(type);
++    void AsyncStorage.setItem(FONT_TYPE_KEY, type);
++  }, []);
++
+   const setSyncTheme = useCallback(async (enabled: boolean) => {
+     setSyncThemeState(enabled);
+     void AsyncStorage.setItem(SYNC_THEME_KEY, String(enabled));
+   }, []);
+ 
+   const theme = themeDefinitions[themeName];
+   const scaledTypography = useMemo(
+     () => scaleTypography(fontScale),
+     [fontScale],
+   );
+@@ -362,27 +377,31 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
+   const value = useMemo(
+     () => ({
+       themeName,
+       theme: { ...theme, typography: scaledTypography },
+       setThemeName,
+       colors: theme.colors,
+       spacing: theme.spacing,
+       typography: scaledTypography,
+       fontScale,
+       setFontScale,
++      fontType,
++      setFontType,
+       syncTheme,
+       setSyncTheme,
+     }),
+     [
+       fontScale,
+       scaledTypography,
+       setFontScale,
++      fontType,
++      setFontType,
+       setThemeName,
+       setSyncTheme,
+       syncTheme,
+       theme,
+       themeName,
+     ],
+   );
+ 
+   return (
+     <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

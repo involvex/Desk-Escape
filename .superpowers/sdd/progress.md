@@ -1,19 +1,17 @@
-# Offline Queue for Prompts — Progress Ledger
+# Settings Menu on Home Screen - Progress Ledger
 
 ## Tasks
 
-| Task                                      | Status  | Commits   | Review                             |
-| ----------------------------------------- | ------- | --------- | ---------------------------------- |
-| 1. Define QueuedMessage type              | ✅ done | `be529dd` | typecheck + lint pass              |
-| 2. Create useOfflineQueue hook            | ✅ done | `752f9b3` | typecheck + lint pass              |
-| 3. Integrate queue into ConnectionContext | ✅ done | `ff634d2` | typecheck + lint pass              |
-| 4. Route sends through queue in AgentChat | ✅ done | `9e98333` | typecheck + lint pass              |
-| 5. Create OfflineQueueIndicator component | ✅ done | `519367a` | typecheck + lint pass              |
-| 6. Render indicator in WorkspaceScreen    | ✅ done | `519367a` | typecheck + lint pass              |
-| 7. Final verification                     | ✅ done | —         | typecheck + lint + format all pass |
+| Task                                               | Status | Commits   | Review                           |
+| -------------------------------------------------- | ------ | --------- | -------------------------------- |
+| 1. Add 'hacker' to ThemeName + FontType type       | done   | `0d4ec2e` | Approved                         |
+| 2. Add hacker theme + fontType to ThemeContext     | done   | `11632e7` | Approved                         |
+| 3. Add settings gear icon to ProviderPickerScreen  | done   | `8dff9e2` | Approved                         |
+| 4. Add Font type + About section to SettingsScreen | done   | `9a5968b` | Approved                         |
+| 5. Wire fontFamily into ThemeTypography            | done   | `2d5b147` | Approved                         |
+| 6. Verify typecheck + lint                         | done   | -         | typecheck + lint pass (0 errors) |
 
 ## Base
 
-- Starting commit: `26618a4`
-- Final commit: `519367a`
-- Branch: `main` (5 commits ahead of origin)
+- Starting commit: `851a9b7`
+- Branch: `main`

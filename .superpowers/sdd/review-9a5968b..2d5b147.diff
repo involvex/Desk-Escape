@@ -1,0 +1,94 @@
+# Review package: 9a5968b..2d5b147
+
+## Commits
+2d5b147 feat: wire fontFamily into ThemeTypography based on fontType
+
+## Files changed
+ src/context/ThemeContext.tsx | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/src/context/ThemeContext.tsx b/src/context/ThemeContext.tsx
+index 5386568..cb505c8 100644
+--- a/src/context/ThemeContext.tsx
++++ b/src/context/ThemeContext.tsx
+@@ -39,20 +39,21 @@ export interface ThemeSpacing {
+   lg: number;
+   xl: number;
+ }
+ 
+ export interface ThemeTypography {
+   title: number;
+   subtitle: number;
+   body: number;
+   caption: number;
+   mono: number;
++  fontFamily: string;
+ }
+ 
+ export interface ThemeDefinition {
+   name: ThemeName;
+   label: string;
+   statusBar: "light" | "dark";
+   colors: ThemeColors;
+   spacing: ThemeSpacing;
+   typography: ThemeTypography;
+ }
+@@ -64,29 +65,31 @@ const sharedSpacing: ThemeSpacing = {
+   lg: 24,
+   xl: 32,
+ };
+ 
+ const baseTypography: ThemeTypography = {
+   title: 20,
+   subtitle: 16,
+   body: 14,
+   caption: 12,
+   mono: 13,
++  fontFamily: "System",
+ };
+ 
+-function scaleTypography(scale: number): ThemeTypography {
++function scaleTypography(scale: number, fontType: FontType): ThemeTypography {
+   return {
+     title: Math.round(baseTypography.title * scale),
+     subtitle: Math.round(baseTypography.subtitle * scale),
+     body: Math.round(baseTypography.body * scale),
+     caption: Math.round(baseTypography.caption * scale),
+     mono: Math.round(baseTypography.mono * scale),
++    fontFamily: fontType === "mono" ? "monospace" : "System",
+   };
+ }
+ 
+ const themeNames: ThemeName[] = [
+   "oled-black",
+   "dev-dark",
+   "dev-light",
+   "midnight-purple",
+   "solarized-dark",
+   "nord",
+@@ -359,22 +362,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
+     void AsyncStorage.setItem(FONT_TYPE_KEY, type);
+   }, []);
+ 
+   const setSyncTheme = useCallback(async (enabled: boolean) => {
+     setSyncThemeState(enabled);
+     void AsyncStorage.setItem(SYNC_THEME_KEY, String(enabled));
+   }, []);
+ 
+   const theme = themeDefinitions[themeName];
+   const scaledTypography = useMemo(
+-    () => scaleTypography(fontScale),
+-    [fontScale],
++    () => scaleTypography(fontScale, fontType),
++    [fontScale, fontType],
+   );
+ 
+   useEffect(() => {
+     void SystemUI.setBackgroundColorAsync(theme.colors.background);
+   }, [theme.colors.background]);
+ 
+   const value = useMemo(
+     () => ({
+       themeName,
+       theme: { ...theme, typography: scaledTypography },

@@ -299,7 +299,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeName, setThemeNameState] = useState<ThemeName>("oled-black");
   const [fontScale, setFontScaleState] = useState<FontScale>(1);
   const [fontType, setFontTypeState] = useState<FontType>("system");
-  const [syncTheme, setSyncThemeState] = useState(true);
+  const [syncTheme, setSyncThemeState] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -347,10 +347,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [syncTheme, colorScheme, themeName]);
 
-  const setThemeName = useCallback((name: ThemeName) => {
-    setThemeNameState(name);
-    void AsyncStorage.setItem(THEME_STORAGE_KEY, name);
-  }, []);
+  const setThemeName = useCallback(
+    (name: ThemeName) => {
+      setThemeNameState(name);
+      void AsyncStorage.setItem(THEME_STORAGE_KEY, name);
+      if (syncTheme) {
+        setSyncThemeState(false);
+        void AsyncStorage.setItem(SYNC_THEME_KEY, "false");
+      }
+    },
+    [syncTheme],
+  );
 
   const setFontScale = useCallback((scale: FontScale) => {
     setFontScaleState(scale);

@@ -1,0 +1,226 @@
+# Review package: 8dff9e2..9a5968b
+
+## Commits
+9a5968b feat(settings): add Font type section and About section to SettingsScreen
+
+## Files changed
+ src/screens/SettingsScreen.tsx | 93 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 93 insertions(+)
+
+## Diff
+diff --git a/src/screens/SettingsScreen.tsx b/src/screens/SettingsScreen.tsx
+index 18dbede..565a50f 100644
+--- a/src/screens/SettingsScreen.tsx
++++ b/src/screens/SettingsScreen.tsx
+@@ -6,33 +6,39 @@ import {
+   Alert,
+   Pressable,
+   ScrollView,
+   StyleSheet,
+   Switch,
+   Text,
+   TextInput,
+   View,
+ } from "react-native";
+ import { SafeAreaView } from "react-native-safe-area-context";
+-import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react-native";
++import {
++  ChevronLeft,
++  ChevronRight,
++  ExternalLink,
++  Trash2,
++} from "lucide-react-native";
+ import { useOpenCodeConfig, useUpdateConfig } from "@/api/hooks";
+ import { useBiometricLockContext } from "@/context/BiometricLockContext";
+ import { useOrientation } from "@/context/OrientationContext";
+ import {
+   DEFAULT_PROMPT_PRESETS,
+   usePreferences,
+ } from "@/context/PreferencesContext";
+ import { themeDefinitions, useTheme } from "@/context/ThemeContext";
+ import { ensureNotificationPermissions } from "@/services/notifications";
+ import type { RootStackParamList } from "@/navigation/RootNavigator";
+ import type {
+   FontScale,
++  FontType,
+   OrientationMode,
+   PromptPreset,
+ } from "@/types/opencode";
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
+ 
+ const themeOptions = Object.values(themeDefinitions).map((theme) => ({
+   id: theme.name,
+   label: theme.label,
+ }));
+@@ -43,29 +49,36 @@ const orientationOptions: { id: OrientationMode; label: string }[] = [
+   { id: "landscape", label: "Landscape preferred" },
+ ];
+ 
+ const fontScaleOptions: { id: FontScale; label: string }[] = [
+   { id: 0.85, label: "Small" },
+   { id: 1, label: "Default" },
+   { id: 1.15, label: "Large" },
+   { id: 1.3, label: "XL" },
+ ];
+ 
++const fontTypeOptions: { id: FontType; label: string }[] = [
++  { id: "system", label: "System" },
++  { id: "mono", label: "Monospace" },
++];
++
+ export function SettingsScreen({ navigation }: Props) {
+   const {
+     colors,
+     spacing,
+     typography,
+     themeName,
+     setThemeName,
+     fontScale,
+     setFontScale,
++    fontType,
++    setFontType,
+     syncTheme,
+     setSyncTheme,
+   } = useTheme();
+   const { mode: orientationMode, setMode: setOrientationMode } =
+     useOrientation();
+   const {
+     autoApprovePermissions,
+     setAutoApprovePermissions,
+     promptPresets,
+     setPromptPresets,
+@@ -253,20 +266,57 @@ export function SettingsScreen({ navigation }: Props) {
+           color: colors.textMuted,
+           fontSize: typography.caption,
+           marginTop: 2,
+         },
+         linkButton: {
+           color: colors.accent,
+           fontSize: typography.caption,
+           fontWeight: "600",
+           marginBottom: spacing.sm,
+         },
++        aboutRow: {
++          alignItems: "center",
++          backgroundColor: colors.surface,
++          borderColor: colors.border,
++          borderRadius: 12,
++          borderWidth: 1,
++          flexDirection: "row",
++          justifyContent: "space-between",
++          marginBottom: spacing.sm,
++          padding: spacing.md,
++        },
++        aboutLabel: {
++          color: colors.textMuted,
++          fontSize: typography.body,
++        },
++        aboutValue: {
++          color: colors.text,
++          fontSize: typography.body,
++          fontWeight: "600",
++        },
++        repoLink: {
++          alignItems: "center",
++          backgroundColor: colors.surface,
++          borderColor: colors.border,
++          borderRadius: 12,
++          borderWidth: 1,
++          flexDirection: "row",
++          gap: spacing.sm,
++          justifyContent: "center",
++          marginTop: spacing.sm,
++          padding: spacing.md,
++        },
++        repoLinkText: {
++          color: colors.accent,
++          fontSize: typography.body,
++          fontWeight: "600",
++        },
+       }),
+     [colors, spacing, typography],
+   );
+ 
+   const handleOpenAdvanced = () => {
+     if (config) {
+       setJsonDraft(JSON.stringify(config, null, 2));
+     }
+     setShowAdvanced(true);
+   };
+@@ -379,20 +429,38 @@ export function SettingsScreen({ navigation }: Props) {
+                     styles.chip,
+                     fontScale === option.id ? styles.chipActive : null,
+                   ]}
+                 >
+                   <Text style={styles.chipText}>{option.label}</Text>
+                 </Pressable>
+               ))}
+             </View>
+           </View>
+ 
++          <View style={styles.section}>
++            <Text style={styles.sectionTitle}>Font type</Text>
++            <View style={styles.chipRow}>
++              {fontTypeOptions.map((option) => (
++                <Pressable
++                  key={option.id}
++                  onPress={() => setFontType(option.id)}
++                  style={[
++                    styles.chip,
++                    fontType === option.id ? styles.chipActive : null,
++                  ]}
++                >
++                  <Text style={styles.chipText}>{option.label}</Text>
++                </Pressable>
++              ))}
++            </View>
++          </View>
++
+           <View style={styles.section}>
+             <Text style={styles.sectionTitle}>Orientation</Text>
+             <View style={styles.chipRow}>
+               {orientationOptions.map((option) => (
+                 <Pressable
+                   key={option.id}
+                   onPress={() => setOrientationMode(option.id)}
+                   style={[
+                     styles.chip,
+                     orientationMode === option.id ? styles.chipActive : null,
+                   ]}
+                 >
+@@ -603,15 +671,34 @@ export function SettingsScreen({ navigation }: Props) {
+                 disabled={updateConfig.isPending}
+                 onPress={handleSaveJson}
+                 style={styles.saveButton}
+               >
+                 <Text style={styles.saveText}>
+                   {updateConfig.isPending ? "Saving..." : "Save config"}
+                 </Text>
+               </Pressable>
+             </View>
+           ) : null}
++
++          <View style={styles.section}>
++            <Text style={styles.sectionTitle}>About</Text>
++            <View style={styles.aboutRow}>
++              <Text style={styles.aboutLabel}>Version</Text>
++              <Text style={styles.aboutValue}>1.0.1</Text>
++            </View>
++            <Pressable
++              onPress={() => {
++                import("expo-web-browser").then(({ openBrowserAsync }) => {
++                  openBrowserAsync("https://github.com/involvex/Desk-Escape");
++                });
++              }}
++              style={styles.repoLink}
++            >
++              <ExternalLink color={colors.accent} size={16} />
++              <Text style={styles.repoLinkText}>View on GitHub</Text>
++            </Pressable>
++          </View>
+         </ScrollView>
+       )}
+     </SafeAreaView>
+   );
+ }
