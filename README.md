@@ -86,19 +86,19 @@ Desk-Escape/
 
 ## Scripts
 
-| Command | Description |
-|---------|-------------|
-| `bun run start` | Start Expo dev server |
-| `bun run android` | Build and run on Android |
-| `bun run ios` | Build and run on iOS |
-| `bun run web` | Start web version |
-| `bun run check` | Run lint, format, typecheck, and dependency check |
-| `bun run lint` | Run ESLint |
-| `bun run lint:fix` | Run ESLint with auto-fix |
-| `bun run format` | Run Prettier |
-| `bun run typecheck` | Run TypeScript type checking |
-| `bun run doctor` | Run Expo doctor diagnostics |
-| `bun run android:clean` | Clean Android build artifacts |
+| Command                 | Description                                       |
+| ----------------------- | ------------------------------------------------- |
+| `bun run start`         | Start Expo dev server                             |
+| `bun run android`       | Build and run on Android                          |
+| `bun run ios`           | Build and run on iOS                              |
+| `bun run web`           | Start web version                                 |
+| `bun run check`         | Run lint, format, typecheck, and dependency check |
+| `bun run lint`          | Run ESLint                                        |
+| `bun run lint:fix`      | Run ESLint with auto-fix                          |
+| `bun run format`        | Run Prettier                                      |
+| `bun run typecheck`     | Run TypeScript type checking                      |
+| `bun run doctor`        | Run Expo doctor diagnostics                       |
+| `bun run android:clean` | Clean Android build artifacts                     |
 
 ## Documentation
 

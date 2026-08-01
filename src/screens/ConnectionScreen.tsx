@@ -23,6 +23,7 @@ import {
 import { useTheme } from "@/context/ThemeContext";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type { ConnectionDraft, TestConnectionStatus } from "@/types/opencode";
+import type { AnyConnectionConfig } from "@/api/providers/types";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "Connection">;
 
@@ -252,7 +253,7 @@ export function ConnectionScreen() {
     setTestMessage(null);
 
     try {
-      const config = buildConfig();
+      const config = buildConfig() as unknown as AnyConnectionConfig;
       const result = await testServerConnection(config, password);
       if (result.healthy) {
         setTestStatus("success");
@@ -276,7 +277,7 @@ export function ConnectionScreen() {
   const handleConnect = useCallback(async () => {
     setIsConnecting(true);
     try {
-      const config = buildConfig();
+      const config = buildConfig() as unknown as AnyConnectionConfig;
       await connect(config, password);
       await persistDraft();
       navigation.replace("Workspace");

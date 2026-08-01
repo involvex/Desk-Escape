@@ -26,24 +26,24 @@ bun run start
 
 ## Available Scripts
 
-| Command | Description |
-|---------|-------------|
-| `bun run start` | Start Expo dev server |
-| `bun run android` | Build and run on Android device/emulator |
-| `bun run ios` | Build and run on iOS simulator |
-| `bun run web` | Start web version |
-| `bun run check` | Run lint + format + typecheck + dependency check + doctor |
-| `bun run lint` | Run ESLint |
-| `bun run lint:fix` | Run ESLint with auto-fix |
-| `bun run format` | Run Prettier on all files |
-| `bun run typecheck` | Run TypeScript type checking |
-| `bun run doctor` | Run Expo doctor diagnostics |
-| `bun run check:install` | Verify native dependencies match Expo SDK versions |
-| `bun run build:terminal-shell` | Rebuild the terminal shell HTML asset |
-| `bun run android:clean` | Clean Android build artifacts |
-| `bun run android:install` | Build and install release APK on connected device |
-| `bun run validate:pty` | Validate PTY WebSocket connectivity |
-| `bun run validate:terminal` | Validate terminal Android setup (PowerShell) |
+| Command                        | Description                                               |
+| ------------------------------ | --------------------------------------------------------- |
+| `bun run start`                | Start Expo dev server                                     |
+| `bun run android`              | Build and run on Android device/emulator                  |
+| `bun run ios`                  | Build and run on iOS simulator                            |
+| `bun run web`                  | Start web version                                         |
+| `bun run check`                | Run lint + format + typecheck + dependency check + doctor |
+| `bun run lint`                 | Run ESLint                                                |
+| `bun run lint:fix`             | Run ESLint with auto-fix                                  |
+| `bun run format`               | Run Prettier on all files                                 |
+| `bun run typecheck`            | Run TypeScript type checking                              |
+| `bun run doctor`               | Run Expo doctor diagnostics                               |
+| `bun run check:install`        | Verify native dependencies match Expo SDK versions        |
+| `bun run build:terminal-shell` | Rebuild the terminal shell HTML asset                     |
+| `bun run android:clean`        | Clean Android build artifacts                             |
+| `bun run android:install`      | Build and install release APK on connected device         |
+| `bun run validate:pty`         | Validate PTY WebSocket connectivity                       |
+| `bun run validate:terminal`    | Validate terminal Android setup (PowerShell)              |
 
 ## Code Style
 
@@ -87,6 +87,7 @@ src/
 ### Context Pattern
 
 Each context follows this structure:
+
 - File: `src/context/FooContext.tsx`
 - Exports: `FooProvider` component, `useFoo()` hook
 - The hook throws if used outside its provider
@@ -96,6 +97,7 @@ Each context follows this structure:
 ### React Query
 
 Server state is managed through React Query:
+
 - Query keys are defined as functions in `src/api/hooks.ts`
 - Mutations use `useMutation` with `onSettled` to refetch related queries
 - `staleTime` varies by data freshness needs (30s for sessions, Infinity for messages)
@@ -128,6 +130,7 @@ This ensures styles update when the theme changes.
 ### Context Attachments
 
 Files can be attached as context for the next prompt:
+
 1. Long-press a file in `FileDrawer` → calls `addContextAttachment(path)`
 2. Attachments are displayed in `WorkspaceToolbar`
 3. When sending a prompt, attachments are included as text parts
@@ -148,6 +151,7 @@ This verifies all native modules are compatible with the installed Expo SDK vers
 ### Key Version Pins
 
 Some packages require exact version pins due to known regressions:
+
 - `react-native-gesture-handler`: pinned to exact `2.31.1` (no `^` or `~`)
   - `2.31.2` regresses certain APIs
   - `3.x` fails on Windows due to MAX_PATH limits
@@ -218,6 +222,7 @@ chore: bump expo SDK to 57
 ## AI Contributors
 
 This project uses `AGENTS.md` for AI agent context. Key rules:
+
 - Read `AGENTS.md` before making changes — it contains learned workspace facts
 - Do not git commit or push unless explicitly requested
 - Use `bun` for all package management and script execution

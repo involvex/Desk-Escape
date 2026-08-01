@@ -51,14 +51,14 @@ All screens use `headerShown: false` with a custom header in `WorkspaceScreen`. 
 
 The provider tree in `App.tsx` is ordered by dependency — outer providers don't depend on inner ones:
 
-| Provider | File | Responsibility |
-|----------|------|----------------|
-| `ThemeProvider` | `src/context/ThemeContext.tsx` | 7 color themes, font scaling, system dark mode sync. Persists to AsyncStorage. |
-| `PreferencesProvider` | `src/context/PreferencesContext.tsx` | User preferences: auto-approve permissions, prompt presets, tool/thinking block collapse behavior. |
-| `OrientationProvider` | `src/context/OrientationContext.tsx` | Screen orientation lock (portrait/landscape/auto). Uses `expo-screen-orientation`. |
-| `ConnectionProvider` | `src/context/ConnectionContext.tsx` | **Core state**: OpenCode client, session, project, connection status, reconnection, offline queue, context attachments. |
-| `BiometricLockProvider` | `src/context/BiometricLockContext.tsx` | Face ID / fingerprint lock gate. Wraps `useBiometricLock` hook. |
-| `PermissionProvider` | `src/context/PermissionContext.tsx` | Listens for agent permission requests via event bus, shows in-app banner or notification, responds on user action. |
+| Provider                | File                                   | Responsibility                                                                                                          |
+| ----------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `ThemeProvider`         | `src/context/ThemeContext.tsx`         | 7 color themes, font scaling, system dark mode sync. Persists to AsyncStorage.                                          |
+| `PreferencesProvider`   | `src/context/PreferencesContext.tsx`   | User preferences: auto-approve permissions, prompt presets, tool/thinking block collapse behavior.                      |
+| `OrientationProvider`   | `src/context/OrientationContext.tsx`   | Screen orientation lock (portrait/landscape/auto). Uses `expo-screen-orientation`.                                      |
+| `ConnectionProvider`    | `src/context/ConnectionContext.tsx`    | **Core state**: OpenCode client, session, project, connection status, reconnection, offline queue, context attachments. |
+| `BiometricLockProvider` | `src/context/BiometricLockContext.tsx` | Face ID / fingerprint lock gate. Wraps `useBiometricLock` hook.                                                         |
+| `PermissionProvider`    | `src/context/PermissionContext.tsx`    | Listens for agent permission requests via event bus, shows in-app banner or notification, responds on user action.      |
 
 ### ConnectionContext (the central hub)
 
@@ -88,20 +88,20 @@ Wraps `@opencode-ai/sdk/client`. Key functions:
 
 React Query hooks that bridge the SDK to the UI:
 
-| Hook | Purpose |
-|------|---------|
-| `useSessions()` | Lists sessions for the active directory |
-| `useSessionMessages(sessionId)` | Fetches messages for a session (staleTime: Infinity, refetch on mount) |
-| `useProjects()` | Lists all projects |
-| `useCurrentProject()` | Gets the current project for the active directory |
-| `useCommands()` | Lists available slash commands |
-| `useOpenCodeConfig()` | Gets server config |
-| `useSendPrompt(sessionId)` | Sends a text prompt with context attachments |
-| `useExecuteCommand(sessionId)` | Executes a slash command |
-| `useSessionMessageStream(sessionId)` | Subscribes to SSE events and incrementally updates the message list |
-| `useFileList(path)` | Lists files at a path |
-| `useFileStatus()` | Gets git status of files (modified/added/deleted) |
-| `useFilePatch(path)` | Reads a file's diff patch |
+| Hook                                 | Purpose                                                                |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| `useSessions()`                      | Lists sessions for the active directory                                |
+| `useSessionMessages(sessionId)`      | Fetches messages for a session (staleTime: Infinity, refetch on mount) |
+| `useProjects()`                      | Lists all projects                                                     |
+| `useCurrentProject()`                | Gets the current project for the active directory                      |
+| `useCommands()`                      | Lists available slash commands                                         |
+| `useOpenCodeConfig()`                | Gets server config                                                     |
+| `useSendPrompt(sessionId)`           | Sends a text prompt with context attachments                           |
+| `useExecuteCommand(sessionId)`       | Executes a slash command                                               |
+| `useSessionMessageStream(sessionId)` | Subscribes to SSE events and incrementally updates the message list    |
+| `useFileList(path)`                  | Lists files at a path                                                  |
+| `useFileStatus()`                    | Gets git status of files (modified/added/deleted)                      |
+| `useFilePatch(path)`                 | Reads a file's diff patch                                              |
 
 ### event-bus.ts
 
@@ -155,6 +155,7 @@ The terminal is a full-screen PTY powered by xterm.js running inside a React Nat
 ### Build Pipeline
 
 `scripts/build-terminal-shell.mjs` runs at `postinstall`:
+
 1. Reads `@xterm/xterm` JS, `@xterm/addon-fit` JS, and `@xterm/xterm` CSS from `node_modules`
 2. Bundles them with inline WebSocket + terminal initialization logic
 3. Outputs `src/assets/terminal-shell-html.ts` as a static HTML string export
@@ -198,15 +199,15 @@ Built with `buildTerminalWebSocketUrl()` using the server base URL, PTY session 
 
 7 built-in themes defined in `ThemeContext.tsx`:
 
-| Name | Style |
-|------|-------|
-| `oled-black` | Pure black background, cyan accent |
-| `dev-dark` | GitHub-like dark, blue accent |
-| `dev-light` | GitHub-like light, blue accent |
-| `midnight-purple` | Deep purple, violet accent |
-| `solarized-dark` | Solarized palette, teal accent |
-| `nord` | Nord palette, ice blue accent |
-| `high-contrast` | Black/white/yellow, maximum contrast |
+| Name              | Style                                |
+| ----------------- | ------------------------------------ |
+| `oled-black`      | Pure black background, cyan accent   |
+| `dev-dark`        | GitHub-like dark, blue accent        |
+| `dev-light`       | GitHub-like light, blue accent       |
+| `midnight-purple` | Deep purple, violet accent           |
+| `solarized-dark`  | Solarized palette, teal accent       |
+| `nord`            | Nord palette, ice blue accent        |
+| `high-contrast`   | Black/white/yellow, maximum contrast |
 
 Each theme defines: `colors` (14 semantic tokens), `spacing` (5 scale values), `typography` (5 font sizes).
 
@@ -230,21 +231,22 @@ The agent can request permissions (e.g., to run shell commands). The flow:
 ### with-cleartext-network
 
 Custom plugin (`plugins/with-cleartext-network.js`) that:
+
 1. Sets `android:usesCleartextTraffic="true"` in AndroidManifest
 2. Adds a `network_security_config.xml` allowing all cleartext traffic
 3. Required because OpenCode servers typically run over HTTP on LAN/Tailscale
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Framework | React Native 0.86 + Expo SDK 57 |
-| Navigation | React Navigation 7 (native stack) |
-| State | React Query 5 (server state) + Context (app state) |
-| Styling | `StyleSheet.create()` with theme tokens |
-| Terminal | xterm.js 6 + FitAddon in WebView |
-| SDK | `@opencode-ai/sdk/client` v1 |
-| Animations | react-native-reanimated 4.5 |
-| Gestures | react-native-gesture-handler 2.32 |
-| Storage | AsyncStorage (general) + SecureStore (credentials) |
-| Build | Bun, TypeScript 6, ESLint 10 |
+| Layer      | Technology                                         |
+| ---------- | -------------------------------------------------- |
+| Framework  | React Native 0.86 + Expo SDK 57                    |
+| Navigation | React Navigation 7 (native stack)                  |
+| State      | React Query 5 (server state) + Context (app state) |
+| Styling    | `StyleSheet.create()` with theme tokens            |
+| Terminal   | xterm.js 6 + FitAddon in WebView                   |
+| SDK        | `@opencode-ai/sdk/client` v1                       |
+| Animations | react-native-reanimated 4.5                        |
+| Gestures   | react-native-gesture-handler 2.32                  |
+| Storage    | AsyncStorage (general) + SecureStore (credentials) |
+| Build      | Bun, TypeScript 6, ESLint 10                       |

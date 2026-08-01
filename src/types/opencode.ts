@@ -7,7 +7,15 @@ import type {
   ToolPart,
 } from "@opencode-ai/sdk/client";
 
-export type { Agent, Message, Part, Project, Session, ToolPart };
+export type AgentProviderType = "opencode" | "cursor";
+export {
+  Agent,
+  Message,
+  Part,
+  Project,
+  Session,
+  ToolPart,
+} from "@opencode-ai/sdk/client";
 
 export type ThemeName =
   | "oled-black"
@@ -34,6 +42,7 @@ export type TestConnectionStatus = "idle" | "testing" | "success" | "error";
 export type WorkspacePanel = "agent" | "files" | "terminal" | "diff";
 
 export interface ConnectionConfig {
+  type?: AgentProviderType;
   baseUrl: string;
   host: string;
   port: number;

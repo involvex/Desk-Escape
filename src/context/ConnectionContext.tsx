@@ -12,7 +12,6 @@ import {
   type ReactNode,
 } from "react";
 import { EventBus } from "@/api/event-bus";
-import { withDirectoryQuery } from "@/api/directory";
 import {
   clearClientCache,
   createAuthenticatedClient,
@@ -23,6 +22,14 @@ import {
 } from "@/api/client";
 import { useOfflineQueue } from "@/api/use-offline-queue";
 import { useReconnect } from "@/api/use-reconnect";
+import { CursorProvider } from "@/api/providers/cursor/provider";
+import { OpenCodeProvider } from "@/api/providers/opencode/provider";
+import type {
+  AgentProvider,
+  AgentProviderType,
+  AnyConnectionConfig,
+  CursorConnectionConfig,
+} from "@/api/providers/types";
 import type {
   ConnectionConfig,
   ConnectionStatus,
@@ -43,6 +50,9 @@ const DIRECTORY_KEY_PREFIX = "@desk-escape/directory:";
 interface ConnectionContextValue {
   client: OpencodeClient | null;
   config: ConnectionConfig | null;
+  cursorConfig: CursorConnectionConfig | null;
+  providerType: AgentProviderType | null;
+  provider: AgentProvider | null;
   status: ConnectionStatus;
   session: Session | null;
   sessionId: string | null;
@@ -58,7 +68,7 @@ interface ConnectionContextValue {
   queuedMessages: QueuedMessage[];
   eventBus: EventBus;
   setAgentActive: (active: boolean) => void;
-  connect: (config: ConnectionConfig, password?: string) => Promise<void>;
+  connect: (config: AnyConnectionConfig, password?: string) => Promise<void>;
   disconnect: () => Promise<void>;
   reconnect: () => void;
   selectSession: (sessionId: string) => Promise<void>;
@@ -66,7 +76,7 @@ interface ConnectionContextValue {
   createSession: (title?: string) => Promise<Session>;
   deleteSession: (sessionId: string) => Promise<void>;
   testServerConnection: (
-    config: ConnectionConfig,
+    config: AnyConnectionConfig,
     password?: string,
   ) => Promise<{ healthy: boolean; version?: string }>;
   addContextAttachment: (path: string) => void;
@@ -187,6 +197,12 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [client, setClient] = useState<OpencodeClient | null>(null);
   const [config, setConfig] = useState<ConnectionConfig | null>(null);
+  const [cursorConfig, setCursorConfig] =
+    useState<CursorConnectionConfig | null>(null);
+  const [providerType, setProviderType] = useState<AgentProviderType | null>(
+    null,
+  );
+  const [provider, setProvider] = useState<AgentProvider | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [session, setSession] = useState<Session | null>(null);
   const [project, setProject] = useState<Project | null>(null);
@@ -205,6 +221,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   );
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const eventBus = useMemo(() => new EventBus(), []);
+  const openCodeProvider = useMemo(() => new OpenCodeProvider(), []);
+  const cursorProvider = useMemo(() => new CursorProvider(), []);
+
   const sendMessageDirectly = useCallback(
     async (text: string, attachments: QueuedMessage["attachments"]) => {
       if (!client || !session?.id) throw new Error("No active session.");
@@ -238,12 +257,31 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const connect = useCallback(
-    async (nextConfig: ConnectionConfig, password?: string) => {
+    async (nextConfig: AnyConnectionConfig, password?: string) => {
       setStatus("connecting");
       setErrorMessage(null);
       setSavedPassword(password);
 
       try {
+        if (nextConfig.type === "cursor") {
+          await cursorProvider.connect(nextConfig, password);
+          setProviderType("cursor");
+          setProvider(cursorProvider);
+          setCursorConfig(nextConfig as CursorConnectionConfig);
+          setStatus("connected");
+          setAuthHeader(null);
+          setBasicAuthCredential(null);
+          await AsyncStorage.setItem(
+            CONFIG_STORAGE_KEY,
+            JSON.stringify({
+              ...nextConfig,
+              label: "Cursor Cloud Agents",
+              lastConnectedAt: new Date().toISOString(),
+            }),
+          );
+          return;
+        }
+
         if (nextConfig.useAuth && password) {
           await savePassword(nextConfig.baseUrl, password);
         }
@@ -283,11 +321,15 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
           savedDirectory,
         );
 
+        await openCodeProvider.connect(nextConfig, password);
+
         setClient(nextClient);
         setConfig(nextConfig);
         setSession(nextSession);
         setProject(nextProject);
         setActiveDirectory(savedDirectory);
+        setProviderType("opencode");
+        setProvider(openCodeProvider);
         setStatus("connected");
         void eventBus.start(nextClient);
         setAuthHeader(
@@ -312,12 +354,16 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
           lastConnectedAt: new Date().toISOString(),
         });
       } catch (error) {
-        clearClientCache(nextConfig);
+        if (nextConfig.type !== "cursor" && config) {
+          clearClientCache(config);
+        }
         setClient(null);
         setConfig(null);
         setSession(null);
         setProject(null);
         setActiveDirectory(null);
+        setProviderType(null);
+        setProvider(null);
         setStatus("error");
         setErrorMessage(
           error instanceof Error ? error.message : "Connection failed.",
@@ -325,126 +371,134 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [eventBus, persistConfig],
+    [eventBus, persistConfig, cursorProvider, openCodeProvider],
   );
 
   const disconnect = useCallback(async () => {
-    eventBus.stop();
-    if (config) {
-      clearClientCache(config);
+    if (provider) {
+      await provider.disconnect();
+    } else {
+      eventBus.stop();
     }
     setClient(null);
     setConfig(null);
+    setCursorConfig(null);
     setSession(null);
     setProject(null);
     setActiveDirectory(null);
+    setProviderType(null);
+    setProvider(null);
     setAgentActive(false);
     setContextAttachments([]);
     setStatus("disconnected");
     setErrorMessage(null);
     setAuthHeader(null);
     setBasicAuthCredential(null);
-  }, [config, eventBus]);
+  }, [provider, eventBus]);
 
   const selectSession = useCallback(
     async (sessionId: string) => {
-      if (!client || !config) {
+      if (!provider) {
         throw new Error("Not connected.");
       }
 
-      const result = await client.session.get({
-        path: { id: sessionId },
-        ...withDirectoryQuery(activeDirectory),
-      });
-
-      if (!result.data) {
-        throw new Error("Session not found.");
-      }
-
-      setSession(result.data);
-      await saveLastSessionId(config.baseUrl, sessionId);
+      const session = await provider.selectSession(sessionId);
+      setSession({
+        id: session.id,
+        title: session.title,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        status: session.status,
+      } as unknown as Session);
+      await saveLastSessionId(config?.baseUrl ?? "", sessionId);
     },
-    [activeDirectory, client, config],
+    [provider, config],
   );
 
   const selectProject = useCallback(
     async (worktree: string) => {
-      if (!client || !config) {
+      if (!provider || !config) {
         throw new Error("Not connected.");
       }
 
       setActiveDirectory(worktree);
       await saveLastDirectory(config.baseUrl, worktree);
 
-      const nextProject = await fetchCurrentProject(client, worktree);
+      const nextProject =
+        (await provider.getCurrentProject()) as Project | null;
       setProject(nextProject);
 
-      const sessions = await client.session.list(withDirectoryQuery(worktree));
-      const existing = sessions.data?.[0];
+      const sessions = await provider.listSessions();
+      const existing = sessions[0];
 
       if (existing) {
-        setSession(existing);
+        setSession({
+          id: existing.id,
+          title: existing.title,
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+          status: existing.status,
+        } as unknown as Session);
         await saveLastSessionId(config.baseUrl, existing.id);
       } else {
-        const created = await client.session.create({
-          ...withDirectoryQuery(worktree),
-          body: { title: "Desk Escape" },
-        });
-        if (!created.data) {
-          throw new Error("Failed to create session for project.");
-        }
-        setSession(created.data);
-        await saveLastSessionId(config.baseUrl, created.data.id);
+        const created = await provider.createSession("Desk Escape");
+        setSession({
+          id: created.id,
+          title: created.title,
+          createdAt: created.createdAt,
+          updatedAt: created.updatedAt,
+          status: created.status,
+        } as unknown as Session);
+        await saveLastSessionId(config.baseUrl, created.id);
       }
 
       setContextAttachments([]);
       await queryClient.invalidateQueries();
     },
-    [client, config, queryClient],
+    [client, config, provider, queryClient],
   );
 
   const createSession = useCallback(
     async (title?: string) => {
-      if (!client || !config) {
+      if (!provider) {
         throw new Error("Not connected.");
       }
 
-      const created = await client.session.create({
-        ...withDirectoryQuery(activeDirectory),
-        body: { title: title ?? "Desk Escape" },
-      });
-
-      if (!created.data) {
-        throw new Error("Failed to create session.");
-      }
-
-      setSession(created.data);
-      await saveLastSessionId(config.baseUrl, created.data.id);
+      const session = await provider.createSession(title);
+      setSession({
+        id: session.id,
+        title: session.title,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        status: session.status,
+      } as unknown as Session);
+      await saveLastSessionId(config?.baseUrl ?? "", session.id);
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      return created.data;
+      return session as unknown as Session;
     },
-    [activeDirectory, client, config, queryClient],
+    [config, provider, queryClient],
   );
 
   const deleteSession = useCallback(
     async (sessionId: string) => {
-      if (!client || !config) {
+      if (!provider) {
         throw new Error("Not connected.");
       }
 
-      await client.session.delete({
-        path: { id: sessionId },
-        ...withDirectoryQuery(activeDirectory),
-      });
+      await provider.deleteSession(sessionId);
 
       if (session?.id === sessionId) {
-        const remaining = await client.session.list(
-          withDirectoryQuery(activeDirectory),
-        );
-        const next = remaining.data?.[0];
+        const remaining = await provider.listSessions();
+        const next = remaining[0];
         if (next) {
-          setSession(next);
-          await saveLastSessionId(config.baseUrl, next.id);
+          setSession({
+            id: next.id,
+            title: next.title,
+            createdAt: next.createdAt,
+            updatedAt: next.updatedAt,
+            status: next.status,
+          } as unknown as Session);
+          await saveLastSessionId(config?.baseUrl ?? "", next.id);
         } else {
           const created = await createSession();
           setSession(created);
@@ -453,17 +507,27 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
-    [activeDirectory, client, config, createSession, queryClient, session?.id],
+    [config, provider, queryClient, session?.id, createSession],
   );
 
   const testServerConnection = useCallback(
-    async (nextConfig: ConnectionConfig, password?: string) => {
+    async (
+      nextConfig: AnyConnectionConfig,
+      password?: string,
+    ): Promise<{ healthy: boolean; version?: string }> => {
+      if (nextConfig.type === "cursor") {
+        const result = await cursorProvider.testConnection(
+          nextConfig,
+          password,
+        );
+        return result;
+      }
       return testConnection(
         nextConfig,
         nextConfig.useAuth ? password : undefined,
       );
     },
-    [],
+    [cursorProvider],
   );
 
   const handleReconnecting = useCallback(() => {
@@ -551,7 +615,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         : undefined;
 
       try {
-        await connect(parsed, password);
+        await connect(parsed as AnyConnectionConfig, password);
       } catch {
         setStatus("disconnected");
       }
@@ -568,6 +632,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     () => ({
       client,
       config,
+      cursorConfig,
+      providerType,
+      provider,
       status,
       session,
       sessionId: session?.id ?? null,
@@ -606,11 +673,16 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       connect,
       contextAttachments,
       createSession,
+      cursorConfig,
+      cursorProvider,
       deleteSession,
       disconnect,
       enqueue,
       clearQueue,
       errorMessage,
+      openCodeProvider,
+      provider,
+      providerType,
       project,
       queue,
       recentHosts,
