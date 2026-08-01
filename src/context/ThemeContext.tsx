@@ -10,10 +10,11 @@ import {
   type ReactNode,
 } from "react";
 import { useColorScheme } from "react-native";
-import type { FontScale, ThemeName } from "@/types/opencode";
+import type { FontScale, FontType, ThemeName } from "@/types/opencode";
 
 const THEME_STORAGE_KEY = "@desk-escape/theme";
 const SYNC_THEME_KEY = "@desk-escape/sync-theme";
+const FONT_TYPE_KEY = "@desk-escape/font-type";
 
 export interface ThemeColors {
   background: string;
@@ -281,6 +282,8 @@ interface ThemeContextValue {
   typography: ThemeTypography;
   fontScale: FontScale;
   setFontScale: (scale: FontScale) => void;
+  fontType: FontType;
+  setFontType: (type: FontType) => void;
   syncTheme: boolean;
   setSyncTheme: (enabled: boolean) => Promise<void>;
 }
@@ -292,15 +295,18 @@ const FONT_SCALE_KEY = "@desk-escape/font-scale";
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeName, setThemeNameState] = useState<ThemeName>("oled-black");
   const [fontScale, setFontScaleState] = useState<FontScale>(1);
+  const [fontType, setFontTypeState] = useState<FontType>("system");
   const [syncTheme, setSyncThemeState] = useState(true);
 
   useEffect(() => {
     void (async () => {
-      const [storedTheme, storedScale, storedSync] = await Promise.all([
-        AsyncStorage.getItem(THEME_STORAGE_KEY),
-        AsyncStorage.getItem(FONT_SCALE_KEY),
-        AsyncStorage.getItem(SYNC_THEME_KEY),
-      ]);
+      const [storedTheme, storedScale, storedSync, storedFontType] =
+        await Promise.all([
+          AsyncStorage.getItem(THEME_STORAGE_KEY),
+          AsyncStorage.getItem(FONT_SCALE_KEY),
+          AsyncStorage.getItem(SYNC_THEME_KEY),
+          AsyncStorage.getItem(FONT_TYPE_KEY),
+        ]);
 
       if (storedTheme && themeNames.includes(storedTheme as ThemeName)) {
         setThemeNameState(storedTheme as ThemeName);
@@ -317,6 +323,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       if (storedSync !== null) {
         setSyncThemeState(storedSync === "true");
+      }
+
+      if (storedFontType === "system" || storedFontType === "mono") {
+        setFontTypeState(storedFontType as FontType);
       }
     })();
   }, []);
@@ -344,6 +354,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.setItem(FONT_SCALE_KEY, String(scale));
   }, []);
 
+  const setFontType = useCallback((type: FontType) => {
+    setFontTypeState(type);
+    void AsyncStorage.setItem(FONT_TYPE_KEY, type);
+  }, []);
+
   const setSyncTheme = useCallback(async (enabled: boolean) => {
     setSyncThemeState(enabled);
     void AsyncStorage.setItem(SYNC_THEME_KEY, String(enabled));
@@ -369,6 +384,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       typography: scaledTypography,
       fontScale,
       setFontScale,
+      fontType,
+      setFontType,
       syncTheme,
       setSyncTheme,
     }),
@@ -376,6 +393,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       fontScale,
       scaledTypography,
       setFontScale,
+      fontType,
+      setFontType,
       setThemeName,
       setSyncTheme,
       syncTheme,
