@@ -147,8 +147,8 @@ export function SettingsScreen({ navigation }: Props) {
           fontWeight: "700",
         },
         content: {
-          flex: 1,
           padding: spacing.md,
+          paddingBottom: spacing.xl,
         },
         section: {
           marginBottom: spacing.lg,
