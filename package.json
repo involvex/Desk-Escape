@@ -1,6 +1,6 @@
 {
   "name": "desk-escape",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.ts",
   "dependencies": {
     "@opencode-ai/sdk": "^1.17.8",
