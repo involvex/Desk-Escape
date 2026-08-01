@@ -610,6 +610,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }
 
       const parsed = JSON.parse(storedConfig) as StoredConnectionConfig;
+      if (!parsed.type) {
+        parsed.type = "opencode";
+      }
       const password = parsed.useAuth
         ? await loadPassword(parsed.baseUrl)
         : undefined;

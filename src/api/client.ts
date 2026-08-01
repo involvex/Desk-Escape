@@ -77,6 +77,7 @@ export function buildConnectionConfig(
   const parsed = parseTarget(target);
 
   return {
+    type: "opencode",
     baseUrl: parsed.baseUrl,
     host: parsed.host,
     port: parsed.port,
