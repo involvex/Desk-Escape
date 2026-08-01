@@ -24,9 +24,12 @@ export type ThemeName =
   | "midnight-purple"
   | "solarized-dark"
   | "nord"
-  | "high-contrast";
+  | "high-contrast"
+  | "hacker";
 
 export type FontScale = 0.85 | 1 | 1.15 | 1.3;
+
+export type FontType = "system" | "mono";
 
 export type OrientationMode = "portrait" | "auto" | "landscape";
 

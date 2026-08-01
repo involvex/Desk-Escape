@@ -90,6 +90,7 @@ const themeNames: ThemeName[] = [
   "solarized-dark",
   "nord",
   "high-contrast",
+  "hacker",
 ];
 
 export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
@@ -245,6 +246,28 @@ export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
       warning: "#FFAA00",
       pillBackground: "rgba(0, 0, 0, 0.95)",
       inputBackground: "#000000",
+    },
+  },
+  hacker: {
+    name: "hacker",
+    label: "Hacker",
+    statusBar: "light",
+    spacing: sharedSpacing,
+    typography: baseTypography,
+    colors: {
+      background: "#0A0A0A",
+      surface: "#0F1A0F",
+      surfaceElevated: "#142014",
+      border: "#00FF00",
+      text: "#00FF00",
+      textMuted: "#00CC00",
+      accent: "#00FF00",
+      accentMuted: "#003300",
+      success: "#00FF00",
+      danger: "#FF0000",
+      warning: "#FFFF00",
+      pillBackground: "rgba(10, 26, 10, 0.92)",
+      inputBackground: "#0A0A0A",
     },
   },
 };
