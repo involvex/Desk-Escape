@@ -46,6 +46,7 @@ export interface ThemeTypography {
   body: number;
   caption: number;
   mono: number;
+  fontFamily: string;
 }
 
 export interface ThemeDefinition {
@@ -71,15 +72,17 @@ const baseTypography: ThemeTypography = {
   body: 14,
   caption: 12,
   mono: 13,
+  fontFamily: "System",
 };
 
-function scaleTypography(scale: number): ThemeTypography {
+function scaleTypography(scale: number, fontType: FontType): ThemeTypography {
   return {
     title: Math.round(baseTypography.title * scale),
     subtitle: Math.round(baseTypography.subtitle * scale),
     body: Math.round(baseTypography.body * scale),
     caption: Math.round(baseTypography.caption * scale),
     mono: Math.round(baseTypography.mono * scale),
+    fontFamily: fontType === "mono" ? "monospace" : "System",
   };
 }
 
@@ -366,8 +369,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const theme = themeDefinitions[themeName];
   const scaledTypography = useMemo(
-    () => scaleTypography(fontScale),
-    [fontScale],
+    () => scaleTypography(fontScale, fontType),
+    [fontScale, fontType],
   );
 
   useEffect(() => {
