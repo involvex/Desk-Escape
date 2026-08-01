@@ -13,7 +13,12 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react-native";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Trash2,
+} from "lucide-react-native";
 import { useOpenCodeConfig, useUpdateConfig } from "@/api/hooks";
 import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { useOrientation } from "@/context/OrientationContext";
@@ -26,6 +31,7 @@ import { ensureNotificationPermissions } from "@/services/notifications";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type {
   FontScale,
+  FontType,
   OrientationMode,
   PromptPreset,
 } from "@/types/opencode";
@@ -50,6 +56,11 @@ const fontScaleOptions: { id: FontScale; label: string }[] = [
   { id: 1.3, label: "XL" },
 ];
 
+const fontTypeOptions: { id: FontType; label: string }[] = [
+  { id: "system", label: "System" },
+  { id: "mono", label: "Monospace" },
+];
+
 export function SettingsScreen({ navigation }: Props) {
   const {
     colors,
@@ -59,6 +70,8 @@ export function SettingsScreen({ navigation }: Props) {
     setThemeName,
     fontScale,
     setFontScale,
+    fontType,
+    setFontType,
     syncTheme,
     setSyncTheme,
   } = useTheme();
@@ -260,6 +273,43 @@ export function SettingsScreen({ navigation }: Props) {
           fontWeight: "600",
           marginBottom: spacing.sm,
         },
+        aboutRow: {
+          alignItems: "center",
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderRadius: 12,
+          borderWidth: 1,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          marginBottom: spacing.sm,
+          padding: spacing.md,
+        },
+        aboutLabel: {
+          color: colors.textMuted,
+          fontSize: typography.body,
+        },
+        aboutValue: {
+          color: colors.text,
+          fontSize: typography.body,
+          fontWeight: "600",
+        },
+        repoLink: {
+          alignItems: "center",
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderRadius: 12,
+          borderWidth: 1,
+          flexDirection: "row",
+          gap: spacing.sm,
+          justifyContent: "center",
+          marginTop: spacing.sm,
+          padding: spacing.md,
+        },
+        repoLinkText: {
+          color: colors.accent,
+          fontSize: typography.body,
+          fontWeight: "600",
+        },
       }),
     [colors, spacing, typography],
   );
@@ -378,6 +428,24 @@ export function SettingsScreen({ navigation }: Props) {
                   style={[
                     styles.chip,
                     fontScale === option.id ? styles.chipActive : null,
+                  ]}
+                >
+                  <Text style={styles.chipText}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Font type</Text>
+            <View style={styles.chipRow}>
+              {fontTypeOptions.map((option) => (
+                <Pressable
+                  key={option.id}
+                  onPress={() => setFontType(option.id)}
+                  style={[
+                    styles.chip,
+                    fontType === option.id ? styles.chipActive : null,
                   ]}
                 >
                   <Text style={styles.chipText}>{option.label}</Text>
@@ -610,6 +678,25 @@ export function SettingsScreen({ navigation }: Props) {
               </Pressable>
             </View>
           ) : null}
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>About</Text>
+            <View style={styles.aboutRow}>
+              <Text style={styles.aboutLabel}>Version</Text>
+              <Text style={styles.aboutValue}>1.0.1</Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                import("expo-web-browser").then(({ openBrowserAsync }) => {
+                  openBrowserAsync("https://github.com/involvex/Desk-Escape");
+                });
+              }}
+              style={styles.repoLink}
+            >
+              <ExternalLink color={colors.accent} size={16} />
+              <Text style={styles.repoLinkText}>View on GitHub</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       )}
     </SafeAreaView>
