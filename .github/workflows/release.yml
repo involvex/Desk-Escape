@@ -56,7 +56,9 @@ jobs:
 
       - name: Decode keystore and write signing config
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" > /tmp/keystore.b64
+          base64 -d /tmp/keystore.b64 > android/app/release.keystore
+          ls -l android/app/release.keystore
           cat >> android/gradle.properties << EOF
 
           # Release signing configuration (set by CI)
