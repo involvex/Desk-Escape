@@ -11,7 +11,7 @@
 
 **App name:** Desk Escape
 **Package:** com.deskescape.app
-**License:** MIT — https://github.com/involvex/Desk-Eescape/blob/main/LICENSE
+**License:** MIT — https://github.com/involvex/Desk-Escape/blob/main/LICENSE
 **Source code URL:** https://github.com/involvex/Desk-Escape
 **Release URL:** https://github.com/involvex/Desk-Escape/releases
 **APK URL pattern:** https://github.com/involvex/Desk-Escape/releases/download/v%v/app-release.apk

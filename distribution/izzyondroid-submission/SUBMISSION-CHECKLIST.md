@@ -12,14 +12,14 @@ IzzyOnDroid is the fastest OSS distribution channel — typical inclusion is
 
 ## Prerequisites
 
-- [ ] Signed release APK (not AAB) exists and is attached to a GitHub tag
+- [x] Signed release APK (not AAB) exists and is attached to a GitHub tag
       (e.g. `https://github.com/involvex/Desk-Escape/releases/tag/v1.1.0`)
-- [ ] APK is signed with `android/app/release.keystore`
-- [ ] SHA-256 fingerprint confirmed: see `distribution/SIGNING-KEY-FINGERPRINTS.md`
-- [ ] Privacy policy is live and accessible (see `distribution/privacy-policy.md` or the
+- [x] APK is signed with `android/app/release.keystore`
+- [x] SHA-256 fingerprint confirmed: see `distribution/SIGNING-KEY-FINGERPRINTS.md`
+- [x] Privacy policy is live and accessible (see `distribution/privacy-policy.md` or the
       GitHub Pages link in the README)
-- [ ] `fastlane/metadata/android/en-US/` contains the short + full app description
-- [ ] `app.json` `version` and `android.versionCode` are set correctly in the tagged commit
+- [x] `fastlane/metadata/android/en-US/` contains the short + full app description
+- [x] `app.json` `version` and `android.versionCode` are set correctly in the tagged commit
 
 ---
 

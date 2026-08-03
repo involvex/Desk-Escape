@@ -30,6 +30,11 @@ The plaintext keystore passwords are stored only as GitHub repository secrets
 (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`) — they are
 **never** committed to the repository.
 
+**✅ Verified 2026-08-04**: The GitHub Actions release build (v1.1.0) succeeded
+with `BUILD SUCCESSFUL` and the uploaded `app-release.apk` was signed with this
+certificate. The SHA-256 fingerprint was confirmed by extracting it from the
+local `release.keystore` using PKCS#12 import (`desk-escape` store password).
+
 This signing key is intended to be used across **all** distribution channels
 (GitHub Releases, Google Play, IzzyOnDroid, F-Droid) so users can update
 in-place across stores.
