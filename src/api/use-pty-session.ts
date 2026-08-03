@@ -8,13 +8,17 @@ export function usePtySession(directory: string | null | undefined) {
   const [ptyId, setPtyId] = useState<string | null>(null);
   const [status, setStatus] = useState<PtySessionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const [retryKey, setRetryKey] = useState(0);
 
   const retry = useCallback(() => {
-    setAttempt((current) => current + 1);
+    setRetryKey((current) => current + 1);
+    setStatus("loading");
+    setError(null);
   }, []);
 
   useEffect(() => {
+    void retryKey;
+
     if (!client || connectionStatus !== "connected" || !directory) {
       return;
     }
@@ -82,7 +86,7 @@ export function usePtySession(directory: string | null | undefined) {
     return () => {
       cancelled = true;
     };
-  }, [attempt, client, connectionStatus, directory]);
+  }, [client, connectionStatus, directory, retryKey]);
 
   return {
     ptyId,

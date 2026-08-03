@@ -1,3 +1,4 @@
+// TerminalPanel.tsx - Fixed version with proper error handling and authentication support
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -55,27 +56,44 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
 
   const { ptyId, status, error, retry } = usePtySession(directory);
 
-  const wsUrl = useMemo(() => {
+  const { wsUrl, authError } = useMemo(() => {
     if (!config || !ptyId || !directory) {
-      return null;
+      return { wsUrl: null, authError: null };
     }
 
-    return buildTerminalWebSocketUrl({
-      baseUrl: config.baseUrl,
-      ptyId,
-      directory,
-      username: basicAuthCredential?.username ?? config.username,
-      password: basicAuthCredential?.password,
-    });
+    try {
+      const url = buildTerminalWebSocketUrl({
+        baseUrl: config.baseUrl,
+        ptyId,
+        directory,
+        username: basicAuthCredential?.username ?? config.username,
+        password: basicAuthCredential?.password,
+      });
+      return { wsUrl: url, authError: null };
+    } catch (err) {
+      return {
+        wsUrl: null,
+        authError:
+          err instanceof Error ? err.message : "Failed to build WebSocket URL",
+      };
+    }
   }, [basicAuthCredential, config, directory, ptyId]);
 
   const injectedBeforeLoad = useMemo(() => {
     if (!wsUrl) {
-      return "true;";
+      return "window.__TERMINAL__ = { wsUrl: null }; true;";
     }
 
     const payload = {
       wsUrl,
+      auth: {
+        username: basicAuthCredential?.username ?? config?.username,
+        password: basicAuthCredential?.password ?? "",
+        hasAuth: !!(
+          basicAuthCredential?.password ||
+          (config?.useAuth && config?.username)
+        ),
+      },
       theme: {
         background: colors.surface,
         foreground: colors.text,
@@ -83,7 +101,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     };
 
     return `window.__TERMINAL__ = ${JSON.stringify(payload)}; true;`;
-  }, [colors.surface, colors.text, wsUrl]);
+  }, [wsUrl, colors.surface, colors.text, basicAuthCredential, config]);
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
@@ -160,11 +178,18 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           fontSize: typography.body,
           textAlign: "center",
         },
+        errorMessage: {
+          color: colors.danger,
+          fontSize: typography.body,
+          textAlign: "center",
+          marginTop: spacing.md,
+        },
         retryButton: {
           backgroundColor: colors.accentMuted,
           borderRadius: 999,
           paddingHorizontal: spacing.lg,
           paddingVertical: spacing.sm,
+          marginTop: spacing.md,
         },
         retryLabel: {
           color: colors.text,
@@ -202,6 +227,25 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         statusText: {
           fontSize: typography.caption,
           fontWeight: "600",
+        },
+        authErrorContainer: {
+          backgroundColor: colors.surfaceElevated,
+          borderColor: colors.danger,
+          borderWidth: 1,
+          borderRadius: spacing.xs,
+          padding: spacing.md,
+          marginHorizontal: spacing.lg,
+          marginTop: spacing.md,
+        },
+        authErrorTitle: {
+          color: colors.danger,
+          fontSize: typography.body,
+          fontWeight: "600",
+          marginBottom: spacing.xs,
+        },
+        authErrorMessage: {
+          color: colors.text,
+          fontSize: typography.caption,
         },
       }),
     [bottomInset, colors, spacing, typography],
@@ -243,11 +287,22 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   }
 
   if (status === "error" || !wsUrl) {
+    const errorMessage =
+      status === "error" ? error : authError || "Unknown error";
     return (
       <View style={styles.container}>
         <View style={styles.centered}>
           <Text style={styles.title}>Terminal failed</Text>
-          <Text style={styles.message}>{error ?? "Unknown error"}</Text>
+          <Text style={styles.message}>{errorMessage}</Text>
+          {authError && (
+            <View style={styles.authErrorContainer}>
+              <Text style={styles.authErrorTitle}>Authentication Required</Text>
+              <Text style={styles.authErrorMessage}>
+                The terminal requires authentication credentials. Please check
+                your OpenCode server configuration.
+              </Text>
+            </View>
+          )}
           <Pressable onPress={() => void retry()} style={styles.retryButton}>
             <Text style={styles.retryLabel}>Retry</Text>
           </Pressable>

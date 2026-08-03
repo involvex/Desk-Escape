@@ -77,8 +77,9 @@ export function useOfflineQueue({ onSend }: UseOfflineQueueOptions) {
       }
     }
 
-    const remaining = await loadQueue();
-    setQueue(remaining);
+    const nextQueue = queue.filter(() => false);
+    setQueue(nextQueue);
+    await saveQueue(nextQueue);
   }, [queue, onSend]);
 
   return { queue, enqueue, dequeue, clearQueue, flushQueue };
