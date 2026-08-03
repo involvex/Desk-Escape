@@ -20,11 +20,7 @@ export type FontType = "system" | "mono";
 export type OrientationMode = "portrait" | "auto" | "landscape";
 
 export type ConnectionStatus =
-  | "disconnected"
-  | "connecting"
-  | "connected"
-  | "error"
-  | "reconnecting";
+  "disconnected" | "connecting" | "connected" | "error" | "reconnecting";
 
 export type TestConnectionStatus = "idle" | "testing" | "success" | "error";
 

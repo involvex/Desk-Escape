@@ -36,10 +36,7 @@ function parseWebViewMessage(data: string): TerminalWebViewMessage | null {
 }
 
 type WebViewConnectionState =
-  | "loading"
-  | "connected"
-  | "disconnected"
-  | "error";
+  "loading" | "connected" | "disconnected" | "error";
 
 export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const { colors, spacing, typography } = useTheme();

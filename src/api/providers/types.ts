@@ -24,8 +24,7 @@ export interface CursorConnectionConfig extends ProviderConnectionConfig {
 }
 
 export type AnyConnectionConfig =
-  | OpenCodeConnectionConfig
-  | CursorConnectionConfig;
+  OpenCodeConnectionConfig | CursorConnectionConfig;
 
 export interface HealthResult {
   healthy: boolean;
