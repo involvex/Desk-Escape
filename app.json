@@ -2,7 +2,7 @@
   "expo": {
     "name": "Desk Escape",
     "slug": "desk-escape",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "owner": "Involvex",
     "githubUrl": "https://github.com/involvex/Desk-Escape.git",
     "orientation": "default",
@@ -26,7 +26,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 1,
+      "versionCode": 10100,
       "package": "com.deskescape.app"
     },
     "web": {
