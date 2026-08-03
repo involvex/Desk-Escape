@@ -1,0 +1,32 @@
+Desk Escape
+===========
+
+Desk Escape is a free, open-source mobile client for OpenCode (https://opencode.ai) — the terminal-based AI coding agent.
+
+Connect to your own self-hosted OpenCode server over your local Wi-Fi, Tailscale, or a self-hosted tunnel (Cloudflare Tunnel / ngrok) and write, review, and ship code from anywhere. The mobile client is a pure thin client: all AI model calls are handled by your OpenCode server, and the app never touches your API keys.
+
+Features
+--------
+• AGENT CHAT — Send prompts, receive responses in real-time via SSE streaming. Supports slash commands, context attachments, and offline queuing.
+• TERMINAL — A full-screen PTY terminal powered by xterm.js in a WebView. Connects to the server's shell over WebSocket.
+• FILE BROWSER — Browse the remote workspace, view file status (modified/added/deleted), and open unified diffs.
+• SESSION & PROJECT MANAGEMENT — Switch between sessions and projects. Create, delete, and navigate across workspaces.
+• THEMES — 7 built-in themes (OLED Black, Dev Dark, Dev Light, Midnight Purple, Solarized Dark, Nord, High Contrast) with system dark/light sync.
+• BIOMETRIC LOCK — Optional Face ID / fingerprint authentication before revealing workspace content.
+• OFFLINE QUEUE — Prompts are buffered when disconnected and sent automatically on reconnection.
+• AUTO-RECONNECT — Exponential backoff reconnection with visual status indicators.
+• LANDSCAPE SPLIT-VIEW — On tablets in landscape, a file rail appears alongside the agent chat.
+• COMMAND PALETTE — Quick access to sessions, projects, slash commands, and app actions.
+• MESSAGE SEARCH — Full-text search across the current session's chat history.
+• MULTI-SERVER PROFILES — Save and switch between multiple OpenCode server connections.
+
+Not affiliated with OpenCode. You run your own server; the app never proxies your traffic or API keys.
+
+Install
+-------
+Download a prebuilt APK from GitHub Releases:
+https://github.com/involvex/Desk-Escape/releases/latest
+
+Or build from source on GitHub.
+
+License: MIT. Source: https://github.com/involvex/Desk-Escape
