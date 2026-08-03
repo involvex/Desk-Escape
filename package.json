@@ -1,5 +1,15 @@
 {
   "name": "desk-escape",
+  "description": "A mobile client for [OpenCode](https://opencode.ai) — control your AI coding agent from your phone or tablet.",
+  "author": "involvex",
+  "repository": {
+    "url": "git+https://github.com/involvex/Desk-Escape.git",
+    "type": "git"
+  },
+  "funding": "https://github.com/sponsors/involvex",
+  "sponsor": {
+    "url": "https://github.com/sponsors/involvex"
+  },
   "version": "1.0.2",
   "main": "index.ts",
   "dependencies": {
@@ -65,5 +75,7 @@
     "validate:pty": "bun scripts/validate-pty-ws.mjs",
     "validate:terminal": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-terminal-android.ps1"
   },
+  "packageManager": "bun@1.4.0",
+  "license": "MIT",
   "private": true
 }
