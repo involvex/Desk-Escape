@@ -43,6 +43,9 @@ jobs:
       - name: Build terminal shell asset
         run: bun run build:terminal-shell
 
+      - name: Prebuild Android
+        run: npx expo prebuild --platform android --no-install --clean
+
       - name: Verify signing secrets are present
         run: |
           if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
@@ -63,9 +66,6 @@ jobs:
           RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
           EOF
           echo "Signed with production release keystore"
-
-      - name: Prebuild Android
-        run: npx expo prebuild --platform android --no-install --clean
 
       - name: Build release APK
         working-directory: android
