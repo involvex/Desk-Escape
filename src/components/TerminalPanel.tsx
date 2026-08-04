@@ -1,5 +1,5 @@
 // TerminalPanel.tsx - Fixed version with proper error handling and authentication support
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,6 +12,7 @@ import { useCurrentProject } from "@/api/hooks";
 import { usePtySession } from "@/api/use-pty-session";
 import { TERMINAL_SHELL_HTML } from "@/assets/terminal-shell-html";
 import { useConnection } from "@/context/ConnectionContext";
+import { usePreferences } from "@/context/PreferencesContext";
 import { useTheme } from "@/context/ThemeContext";
 import { buildTerminalWebSocketUrl } from "@/utils/terminal-websocket";
 
@@ -44,14 +45,19 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     useConnection();
   const { data: currentProject, isLoading: projectLoading } =
     useCurrentProject();
+  const { terminalShell } = usePreferences();
   const [webViewState, setWebViewState] =
     useState<WebViewConnectionState>("loading");
   const [webViewError, setWebViewError] = useState<string | null>(null);
+  const webViewRef = useRef<WebView>(null);
 
   const directory =
     activeDirectory ?? currentProject?.worktree ?? project?.worktree ?? null;
 
-  const { ptyId, status, error, retry } = usePtySession(directory);
+  const { ptyId, status, error, retry, reset } = usePtySession(
+    directory,
+    terminalShell,
+  );
 
   const { wsUrl, authError } = useMemo(() => {
     if (!config || !ptyId || !directory) {
@@ -76,12 +82,9 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     }
   }, [basicAuthCredential, config, directory, ptyId]);
 
-  const injectedBeforeLoad = useMemo(() => {
-    if (!wsUrl) {
-      return "window.__TERMINAL__ = { wsUrl: null }; true;";
-    }
-
-    const payload = {
+  const terminalPayload = useMemo(() => {
+    if (!wsUrl) return null;
+    return {
       wsUrl,
       auth: {
         username: basicAuthCredential?.username ?? config?.username,
@@ -91,14 +94,28 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           (config?.useAuth && config?.username)
         ),
       },
-      theme: {
-        background: colors.surface,
-        foreground: colors.text,
-      },
     };
+  }, [wsUrl, basicAuthCredential, config]);
 
-    return `window.__TERMINAL__ = ${JSON.stringify(payload)}; true;`;
-  }, [wsUrl, colors.surface, colors.text, basicAuthCredential, config]);
+  const injectedBeforeLoad = useMemo(() => {
+    if (!terminalPayload) {
+      return "window.__TERMINAL__ = { wsUrl: null }; true;";
+    }
+    return `window.__TERMINAL__ = ${JSON.stringify(terminalPayload)}; true;`;
+  }, [terminalPayload]);
+
+  const themeScript = useMemo(() => {
+    return `window.__TERMINAL_THEME__ = ${JSON.stringify({ background: colors.surface, foreground: colors.text })}; true;`;
+  }, [colors.surface, colors.text]);
+
+  const htmlWithTheme = useMemo(
+    () =>
+      TERMINAL_SHELL_HTML.replace(
+        "</body>",
+        `<script>${themeScript}</script></body>`,
+      ),
+    [themeScript],
+  );
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
@@ -153,8 +170,8 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const handleWebViewReload = useCallback(() => {
     setWebViewState("loading");
     setWebViewError(null);
-    retry();
-  }, [retry]);
+    reset();
+  }, [reset]);
 
   const styles = useMemo(
     () =>
@@ -225,6 +242,11 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           fontSize: typography.caption,
           fontWeight: "600",
         },
+        shellLabel: {
+          color: colors.textMuted,
+          fontSize: typography.caption,
+          marginLeft: "auto",
+        },
         authErrorContainer: {
           backgroundColor: colors.surfaceElevated,
           borderColor: colors.danger,
@@ -253,7 +275,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
       <View style={styles.container}>
         <View style={styles.centered}>
           <ActivityIndicator color={colors.accent} />
-          <Text style={styles.message}>Loading project…</Text>
+          <Text style={styles.message}>Loading project...</Text>
         </View>
       </View>
     );
@@ -272,17 +294,6 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     );
   }
 
-  if (status === "loading" || status === "idle") {
-    return (
-      <View style={styles.container}>
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.accent} />
-          <Text style={styles.message}>Starting shell…</Text>
-        </View>
-      </View>
-    );
-  }
-
   if (status === "error" || !wsUrl) {
     const errorMessage =
       status === "error" ? error : authError || "Unknown error";
@@ -291,7 +302,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         <View style={styles.centered}>
           <Text style={styles.title}>Terminal failed</Text>
           <Text style={styles.message}>{errorMessage}</Text>
-          {authError && (
+          {authError ? (
             <View style={styles.authErrorContainer}>
               <Text style={styles.authErrorTitle}>Authentication Required</Text>
               <Text style={styles.authErrorMessage}>
@@ -299,10 +310,21 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
                 your OpenCode server configuration.
               </Text>
             </View>
-          )}
+          ) : null}
           <Pressable onPress={() => void retry()} style={styles.retryButton}>
             <Text style={styles.retryLabel}>Retry</Text>
           </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (status === "loading") {
+    return (
+      <View style={styles.container}>
+        <View style={styles.centered}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={styles.message}>Starting shell...</Text>
         </View>
       </View>
     );
@@ -315,7 +337,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         ? (webViewError ?? "Shell disconnected")
         : webViewState === "error"
           ? (webViewError ?? "Terminal error")
-          : "Connecting to shell…";
+          : "Connecting to shell...";
 
   const statusStyle =
     webViewState === "connected"
@@ -326,6 +348,11 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
 
   const showReconnect =
     webViewState === "error" || webViewState === "disconnected";
+
+  const shellDisplayName =
+    terminalShell === "auto"
+      ? "auto"
+      : terminalShell.charAt(0).toUpperCase() + terminalShell.slice(1);
 
   return (
     <View style={styles.container}>
@@ -338,11 +365,15 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         {showReconnect ? (
           <Text style={[styles.statusText, styles.statusError]}>
             {" "}
-            · Tap to reconnect
+            - Tap to reconnect
           </Text>
+        ) : null}
+        {webViewState === "connected" ? (
+          <Text style={styles.shellLabel}>{shellDisplayName}</Text>
         ) : null}
       </Pressable>
       <WebView
+        ref={webViewRef}
         allowsInlineMediaPlayback
         domStorageEnabled
         injectedJavaScriptBeforeContentLoaded={injectedBeforeLoad}
@@ -352,7 +383,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         onMessage={handleWebViewMessage}
         onContentProcessDidTerminate={handleWebViewReload}
         originWhitelist={["*"]}
-        source={{ html: TERMINAL_SHELL_HTML, baseUrl: config?.baseUrl }}
+        source={{ html: htmlWithTheme, baseUrl: config?.baseUrl }}
         style={styles.webview}
       />
     </View>

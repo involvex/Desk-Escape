@@ -1,8 +1,17 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 
 const BIOMETRIC_KEY = "desk-escape.biometric-enabled";
+
+async function getBiometricEnabled(): Promise<boolean> {
+  try {
+    const value = await SecureStore.getItemAsync(BIOMETRIC_KEY);
+    return value === "true";
+  } catch {
+    return false;
+  }
+}
 
 async function setBiometricEnabled(enabled: boolean): Promise<void> {
   await SecureStore.setItemAsync(BIOMETRIC_KEY, String(enabled));
@@ -10,8 +19,17 @@ async function setBiometricEnabled(enabled: boolean): Promise<void> {
 
 export function useBiometricLock() {
   const [state, setState] = useState<"locked" | "unlocking" | "unlocked">(
-    "locked",
+    "unlocked",
   );
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const enabled = await getBiometricEnabled();
+      setState(enabled ? "locked" : "unlocked");
+      setInitialized(true);
+    })();
+  }, []);
 
   const authenticate = useCallback(async (): Promise<boolean> => {
     const compatible = await LocalAuthentication.hasHardwareAsync();
@@ -50,5 +68,5 @@ export function useBiometricLock() {
     }
   }, []);
 
-  return { state, authenticate, setEnabled };
+  return { state, authenticate, setEnabled, initialized };
 }

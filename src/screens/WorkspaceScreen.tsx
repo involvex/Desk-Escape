@@ -76,7 +76,7 @@ export function WorkspaceScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const authAttempted = useRef(false);
 
-  const { lockState, authenticate } = useBiometricLockContext();
+  const { lockState, authenticate, initialized } = useBiometricLockContext();
 
   useEffect(() => {
     void (async () => {
@@ -88,6 +88,7 @@ export function WorkspaceScreen() {
 
   useEffect(() => {
     if (
+      !initialized ||
       lockState !== "locked" ||
       !biometricAvailable ||
       authAttempted.current
@@ -103,7 +104,7 @@ export function WorkspaceScreen() {
         navigation.reset({ index: 0, routes: [{ name: "Connection" }] });
       }
     });
-  }, [lockState, authenticate, navigation, biometricAvailable]);
+  }, [initialized, lockState, authenticate, navigation, biometricAvailable]);
 
   const worktreeName = getWorktreeName(
     currentProject?.worktree ?? project?.worktree,
@@ -303,7 +304,7 @@ export function WorkspaceScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {lockState === "locked" && biometricAvailable ? (
+      {lockState === "locked" && biometricAvailable && initialized ? (
         <View style={styles.gateOverlay}>
           <ActivityIndicator size="large" color={colors.textMuted} />
           <Text style={styles.gateText}>Authenticate to access workspace</Text>

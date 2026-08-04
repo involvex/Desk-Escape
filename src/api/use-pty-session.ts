@@ -1,31 +1,38 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useConnection } from "@/context/ConnectionContext";
+import type { TerminalShell } from "@/context/PreferencesContext";
 
 export type PtySessionStatus = "idle" | "loading" | "ready" | "error";
 
-export function usePtySession(directory: string | null | undefined) {
+export function usePtySession(
+  directory: string | null | undefined,
+  shell: TerminalShell = "auto",
+) {
   const { client, status: connectionStatus } = useConnection();
   const [ptyId, setPtyId] = useState<string | null>(null);
   const [status, setStatus] = useState<PtySessionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
+  const retryCount = useRef(0);
 
   const retry = useCallback(() => {
-    setRetryKey((current) => current + 1);
+    retryCount.current += 1;
+    setPtyId(null);
     setStatus("loading");
     setError(null);
   }, []);
 
   useEffect(() => {
-    void retryKey;
-
     if (!client || connectionStatus !== "connected" || !directory) {
       return;
     }
 
     let cancelled = false;
+    const attempt = retryCount.current;
 
     const ensurePty = async () => {
+      if (attempt !== retryCount.current) return;
+      if (status === "ready" && ptyId) return;
+
       setStatus("loading");
       setError(null);
 
@@ -34,13 +41,13 @@ export function usePtySession(directory: string | null | undefined) {
           query: { directory },
         });
 
+        if (cancelled || attempt !== retryCount.current) return;
+
         const running = (listResult.data ?? []).find(
           (pty) => pty.status === "running",
         );
 
-        if (cancelled) {
-          return;
-        }
+        if (cancelled || attempt !== retryCount.current) return;
 
         if (running) {
           setPtyId(running.id);
@@ -48,17 +55,21 @@ export function usePtySession(directory: string | null | undefined) {
           return;
         }
 
+        const body: Record<string, unknown> = {
+          cwd: directory,
+          title: "Desk Escape",
+        };
+
+        if (shell !== "auto") {
+          body.command = shell;
+        }
+
         const createResult = await client.pty.create({
           query: { directory },
-          body: {
-            cwd: directory,
-            title: "Desk Escape",
-          },
+          body,
         });
 
-        if (cancelled) {
-          return;
-        }
+        if (cancelled || attempt !== retryCount.current) return;
 
         if (!createResult.data?.id) {
           throw new Error("OpenCode did not return a PTY session id.");
@@ -67,9 +78,7 @@ export function usePtySession(directory: string | null | undefined) {
         setPtyId(createResult.data.id);
         setStatus("ready");
       } catch (caught) {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled || attempt !== retryCount.current) return;
 
         setPtyId(null);
         setStatus("error");
@@ -86,12 +95,18 @@ export function usePtySession(directory: string | null | undefined) {
     return () => {
       cancelled = true;
     };
-  }, [client, connectionStatus, directory, retryKey]);
+  }, [client, connectionStatus, directory, shell, ptyId, status]);
 
   return {
     ptyId,
     status,
     error,
     retry,
+    reset: () => {
+      setPtyId(null);
+      setStatus("idle");
+      setError(null);
+      retryCount.current += 1;
+    },
   };
 }

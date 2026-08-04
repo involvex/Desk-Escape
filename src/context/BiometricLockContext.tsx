@@ -6,6 +6,7 @@ interface BiometricLockContextValue {
   lockState: BiometricLockState;
   authenticate: () => Promise<boolean>;
   setBiometricLockEnabled: (enabled: boolean) => Promise<void>;
+  initialized: boolean;
 }
 
 export const BiometricLockContext =
@@ -16,7 +17,7 @@ export function BiometricLockProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { state, authenticate, setEnabled } = useBiometricLock();
+  const { state, authenticate, setEnabled, initialized } = useBiometricLock();
 
   return (
     <BiometricLockContext.Provider
@@ -24,6 +25,7 @@ export function BiometricLockProvider({
         lockState: state,
         authenticate,
         setBiometricLockEnabled: setEnabled,
+        initialized,
       }}
     >
       {children}

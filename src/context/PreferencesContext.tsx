@@ -18,6 +18,18 @@ const AUTO_EXPAND_THINKING_DURING_STREAM_KEY =
   "@desk-escape/auto-expand-thinking-during-stream";
 const SHOW_THINKING_TIMING_KEY = "@desk-escape/show-thinking-timing";
 const THINKING_DEFAULT_MODE_KEY = "@desk-escape/thinking-default-mode";
+const TERMINAL_SHELL_KEY = "@desk-escape/terminal-shell";
+
+export type TerminalShell = "auto" | "pwsh" | "bash" | "zsh" | "fish" | "cmd";
+
+export const TERMINAL_SHELL_OPTIONS: { id: TerminalShell; label: string }[] = [
+  { id: "auto", label: "Auto (detect)" },
+  { id: "bash", label: "Bash" },
+  { id: "zsh", label: "Zsh" },
+  { id: "fish", label: "Fish" },
+  { id: "pwsh", label: "PowerShell" },
+  { id: "cmd", label: "CMD" },
+];
 
 export const DEFAULT_PROMPT_PRESETS: PromptPreset[] = [
   {
@@ -66,6 +78,8 @@ interface PreferencesContextValue {
   setThinkingDefaultMode: (
     mode: "default" | "collapsed" | "expanded" | "auto",
   ) => void;
+  terminalShell: TerminalShell;
+  setTerminalShell: (shell: TerminalShell) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -90,6 +104,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [thinkingDefaultMode, setThinkingDefaultModeState] = useState<
     "default" | "collapsed" | "expanded" | "auto"
   >("default");
+  const [terminalShell, setTerminalShellState] =
+    useState<TerminalShell>("auto");
 
   useEffect(() => {
     void (async () => {
@@ -102,6 +118,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         autoExpand,
         showTiming,
         defaultMode,
+        savedShell,
       ] = await Promise.all([
         AsyncStorage.getItem(AUTO_APPROVE_KEY),
         AsyncStorage.getItem(PROMPT_PRESETS_KEY),
@@ -111,6 +128,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         AsyncStorage.getItem(AUTO_EXPAND_THINKING_DURING_STREAM_KEY),
         AsyncStorage.getItem(SHOW_THINKING_TIMING_KEY),
         AsyncStorage.getItem(THINKING_DEFAULT_MODE_KEY),
+        AsyncStorage.getItem(TERMINAL_SHELL_KEY),
       ]);
 
       if (autoApprove === "true") {
@@ -144,6 +162,15 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         setThinkingDefaultModeState("expanded");
       } else if (defaultMode === "auto") {
         setThinkingDefaultModeState("auto");
+      }
+      if (
+        savedShell === "pwsh" ||
+        savedShell === "bash" ||
+        savedShell === "zsh" ||
+        savedShell === "fish" ||
+        savedShell === "cmd"
+      ) {
+        setTerminalShellState(savedShell);
       }
     })();
   }, []);
@@ -194,6 +221,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const setTerminalShell = useCallback((shell: TerminalShell) => {
+    setTerminalShellState(shell);
+    void AsyncStorage.setItem(TERMINAL_SHELL_KEY, shell);
+  }, []);
+
   return (
     <PreferencesContext.Provider
       value={{
@@ -213,6 +245,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         setShowThinkingTiming,
         thinkingDefaultMode,
         setThinkingDefaultMode,
+        terminalShell,
+        setTerminalShell,
       }}
     >
       {children}

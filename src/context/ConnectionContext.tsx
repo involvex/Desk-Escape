@@ -49,6 +49,7 @@ const RECENT_HOSTS_KEY = "@desk-escape/recent-hosts";
 const PASSWORD_KEY_PREFIX = "desk-escape.password.";
 const SESSION_DIR_KEY_PREFIX = "@desk-escape/session-dir:";
 const DIRECTORY_KEY_PREFIX = "@desk-escape/directory:";
+const PROJECT_ACCESS_KEY = "@desk-escape/project-access";
 
 interface ConnectionContextValue {
   client: OpencodeClient | null;
@@ -161,6 +162,26 @@ async function saveLastDirectory(
 async function loadLastDirectory(baseUrl: string): Promise<string | undefined> {
   const value = await AsyncStorage.getItem(`${DIRECTORY_KEY_PREFIX}${baseUrl}`);
   return value ?? undefined;
+}
+
+async function loadProjectAccess(): Promise<Record<string, string>> {
+  try {
+    const stored = await AsyncStorage.getItem(PROJECT_ACCESS_KEY);
+    if (!stored) return {};
+    return JSON.parse(stored) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+async function saveProjectAccess(worktree: string): Promise<void> {
+  const access = await loadProjectAccess();
+  access[worktree] = new Date().toISOString();
+  await AsyncStorage.setItem(PROJECT_ACCESS_KEY, JSON.stringify(access));
+}
+
+export async function getProjectAccessTimes(): Promise<Record<string, string>> {
+  return loadProjectAccess();
 }
 
 async function deletePassword(baseUrl: string): Promise<void> {
@@ -494,6 +515,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
       setActiveDirectory(worktree);
       await saveLastDirectory(config.baseUrl, worktree);
+      await saveProjectAccess(worktree);
 
       const nextProject =
         (await provider.getCurrentProject()) as Project | null;

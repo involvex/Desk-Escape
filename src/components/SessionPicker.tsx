@@ -8,12 +8,14 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
-import { Plus, Trash2, X } from "lucide-react-native";
+import { Plus, Search, Trash2, X } from "lucide-react-native";
 import { useSessions } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
+import { rankSessions } from "@/utils/session-ranking";
 
 interface SessionPickerProps {
   visible: boolean;
@@ -37,6 +39,17 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
     useConnection();
   const { data: sessions = [], isLoading, refetch } = useSessions();
   const [now] = useState(() => Date.now());
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const rankedSessions = useMemo(() => rankSessions(sessions), [sessions]);
+
+  const filteredSessions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return rankedSessions;
+    return rankedSessions.filter((session) =>
+      (session.title || "").toLowerCase().includes(query),
+    );
+  }, [rankedSessions, searchQuery]);
 
   const styles = useMemo(
     () =>
@@ -67,6 +80,23 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           color: colors.text,
           fontSize: typography.subtitle,
           fontWeight: "700",
+        },
+        searchContainer: {
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: colors.surfaceElevated,
+          borderColor: colors.border,
+          borderRadius: 12,
+          borderWidth: 1,
+          marginHorizontal: spacing.md,
+          marginBottom: spacing.md,
+          paddingHorizontal: spacing.sm,
+        },
+        searchInput: {
+          color: colors.text,
+          fontSize: typography.body,
+          flex: 1,
+          paddingVertical: spacing.sm,
         },
         item: {
           alignItems: "center",
@@ -121,16 +151,6 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           color: colors.accent,
           fontSize: 10,
           fontWeight: "600",
-        },
-        costBadge: {
-          backgroundColor: colors.surfaceElevated,
-          borderRadius: 6,
-          paddingHorizontal: 6,
-          paddingVertical: 2,
-        },
-        costText: {
-          color: colors.textMuted,
-          fontSize: 10,
         },
         createButton: {
           alignItems: "center",
@@ -203,14 +223,36 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
             <Text style={styles.createText}>New session</Text>
           </Pressable>
 
+          <View style={styles.searchContainer}>
+            <Search color={colors.textMuted} size={16} />
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setSearchQuery}
+              placeholder="Search sessions..."
+              placeholderTextColor={colors.textMuted}
+              style={styles.searchInput}
+              value={searchQuery}
+            />
+            {searchQuery.length > 0 ? (
+              <Pressable onPress={() => setSearchQuery("")}>
+                <X color={colors.textMuted} size={16} />
+              </Pressable>
+            ) : null}
+          </View>
+
           {isLoading ? (
             <ActivityIndicator color={colors.accent} />
           ) : (
             <FlatList
-              data={sessions}
+              data={filteredSessions}
               keyExtractor={(item) => item.id}
               ListEmptyComponent={
-                <Text style={styles.empty}>No sessions on this host yet.</Text>
+                <Text style={styles.empty}>
+                  {searchQuery
+                    ? "No sessions match your search."
+                    : "No sessions on this host yet."}
+                </Text>
               }
               renderItem={({ item }) => {
                 const isActive = item.id === sessionId;

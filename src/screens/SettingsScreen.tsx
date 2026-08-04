@@ -24,6 +24,7 @@ import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { useOrientation } from "@/context/OrientationContext";
 import {
   DEFAULT_PROMPT_PRESETS,
+  TERMINAL_SHELL_OPTIONS,
   usePreferences,
 } from "@/context/PreferencesContext";
 import { themeDefinitions, useTheme } from "@/context/ThemeContext";
@@ -94,6 +95,8 @@ export function SettingsScreen({ navigation }: Props) {
     setShowThinkingTiming,
     thinkingDefaultMode,
     setThinkingDefaultMode,
+    terminalShell,
+    setTerminalShell,
   } = usePreferences();
   const { lockState, authenticate, setBiometricLockEnabled } =
     useBiometricLockContext();
@@ -464,6 +467,24 @@ export function SettingsScreen({ navigation }: Props) {
                   style={[
                     styles.chip,
                     orientationMode === option.id ? styles.chipActive : null,
+                  ]}
+                >
+                  <Text style={styles.chipText}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Terminal shell</Text>
+            <View style={styles.chipRow}>
+              {TERMINAL_SHELL_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.id}
+                  onPress={() => setTerminalShell(option.id)}
+                  style={[
+                    styles.chip,
+                    terminalShell === option.id ? styles.chipActive : null,
                   ]}
                 >
                   <Text style={styles.chipText}>{option.label}</Text>
