@@ -1,11 +1,11 @@
 import type { Session } from "@opencode-ai/sdk/client";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -16,6 +16,9 @@ import { useSessions } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 import { rankSessions } from "@/utils/session-ranking";
+import { Snackbar } from "@/components/Snackbar";
+import { Swipeable } from "react-native-gesture-handler";
+import Animated from "react-native-reanimated";
 
 interface SessionPickerProps {
   visible: boolean;
@@ -40,6 +43,11 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
   const { data: sessions = [], isLoading, refetch } = useSessions();
   const [now] = useState(() => Date.now());
   const [searchQuery, setSearchQuery] = useState("");
+  const [snackbar, setSnackbar] = useState<{
+    message: string;
+    action?: { label: string; onPress: () => void };
+    visible: boolean;
+  }>({ message: "", visible: false });
 
   const rankedSessions = useMemo(() => rankSessions(sessions), [sessions]);
 
@@ -50,6 +58,49 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
       (session.title || "").toLowerCase().includes(query),
     );
   }, [rankedSessions, searchQuery]);
+
+  const showSnackbar = useCallback(
+    (message: string, action?: { label: string; onPress: () => void }) => {
+      setSnackbar({ message, action, visible: true });
+    },
+    [],
+  );
+
+  const hideSnackbar = useCallback(() => {
+    setSnackbar({ message: "", visible: false });
+  }, []);
+
+  const handleSelect = useCallback(
+    (session: Session) => {
+      void selectSession(session.id).then(() => onClose());
+    },
+    [selectSession, onClose],
+  );
+
+  const handleCreate = useCallback(() => {
+    void createSession().then(() => {
+      void refetch();
+      onClose();
+    });
+  }, [createSession, refetch, onClose]);
+
+  const handleDelete = useCallback(
+    (session: Session) => {
+      void deleteSession(session.id).then(() => {
+        void refetch();
+        showSnackbar(`Deleted "${session.title || "Untitled session"}"`, {
+          label: "Undo",
+          onPress: () => {
+            void createSession(session.title || "").then(() => {
+              void refetch();
+              hideSnackbar();
+            });
+          },
+        });
+      });
+    },
+    [deleteSession, refetch, showSnackbar, hideSnackbar, createSession],
+  );
 
   const styles = useMemo(
     () =>
@@ -176,33 +227,26 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           padding: spacing.lg,
           textAlign: "center",
         },
+        rightAction: {
+          alignItems: "flex-end",
+          flex: 1,
+          height: "100%",
+          justifyContent: "center",
+          paddingRight: spacing.md,
+          position: "absolute",
+          right: 0,
+          top: 0,
+        },
+        deleteButton: {
+          alignItems: "center",
+          backgroundColor: colors.danger + "33",
+          borderRadius: 8,
+          justifyContent: "center",
+          padding: spacing.sm,
+        },
       }),
     [colors, spacing, typography],
   );
-
-  const handleSelect = (session: Session) => {
-    void selectSession(session.id).then(() => onClose());
-  };
-
-  const handleCreate = () => {
-    void createSession().then(() => {
-      void refetch();
-      onClose();
-    });
-  };
-
-  const handleDelete = (session: Session) => {
-    Alert.alert("Delete session?", session.title || "Untitled session", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          void deleteSession(session.id).then(() => void refetch());
-        },
-      },
-    ]);
-  };
 
   return (
     <Modal animationType="slide" transparent visible={visible}>
@@ -247,6 +291,14 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
             <FlatList
               data={filteredSessions}
               keyExtractor={(item) => item.id}
+              refreshControl={
+                <RefreshControl
+                  colors={[colors.accent]}
+                  onRefresh={() => void refetch()}
+                  refreshing={isLoading}
+                  tintColor={colors.accent}
+                />
+              }
               ListEmptyComponent={
                 <Text style={styles.empty}>
                   {searchQuery
@@ -262,47 +314,81 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
                 const minutesAgo = (now - item.time.updated) / 60_000;
                 const isRecent = minutesAgo < 5;
 
-                return (
-                  <View
-                    style={[styles.item, isActive ? styles.itemActive : null]}
-                  >
-                    <Pressable
-                      onPress={() => handleSelect(item)}
-                      style={styles.itemBody}
+                const renderRightActions = (progress: any) => {
+                  return (
+                    <Animated.View
+                      style={[
+                        styles.rightAction,
+                        {
+                          opacity: progress.interpolate({
+                            inputRange: [0, 80],
+                            outputRange: [0, 1],
+                          }),
+                        },
+                      ]}
                     >
-                      <Text style={styles.itemTitle}>
-                        {item.title || "Untitled session"}
-                      </Text>
-                      <View style={styles.activityRow}>
-                        {isRecent ? (
-                          <View
-                            style={[
-                              styles.activityDot,
-                              { backgroundColor: colors.success },
-                            ]}
-                          />
-                        ) : null}
-                        <Text style={styles.activityLabel}>
-                          {timeAgo(item.time.updated, now)}
+                      <Pressable
+                        onPress={() => handleDelete(item)}
+                        style={styles.deleteButton}
+                        hitSlop={16}
+                      >
+                        <Trash2 color={colors.danger} size={20} />
+                      </Pressable>
+                    </Animated.View>
+                  );
+                };
+
+                return (
+                  <Swipeable
+                    renderRightActions={renderRightActions}
+                    friction={4}
+                    overshootFriction={2}
+                  >
+                    <View
+                      style={[styles.item, isActive ? styles.itemActive : null]}
+                    >
+                      <Pressable
+                        onPress={() => handleSelect(item)}
+                        style={styles.itemBody}
+                      >
+                        <Text style={styles.itemTitle}>
+                          {item.title || "Untitled session"}
                         </Text>
-                        {totalChanges > 0 ? (
-                          <View style={styles.changeBadge}>
-                            <Text style={styles.changeText}>
-                              +{item.summary?.additions ?? 0}/ -
-                              {item.summary?.deletions ?? 0}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    </Pressable>
-                    <Pressable onPress={() => handleDelete(item)}>
-                      <Trash2 color={colors.danger} size={18} />
-                    </Pressable>
-                  </View>
+                        <View style={styles.activityRow}>
+                          {isRecent ? (
+                            <View
+                              style={[
+                                styles.activityDot,
+                                { backgroundColor: colors.success },
+                              ]}
+                            />
+                          ) : null}
+                          <Text style={styles.activityLabel}>
+                            {timeAgo(item.time.updated, now)}
+                          </Text>
+                          {totalChanges > 0 ? (
+                            <View style={styles.changeBadge}>
+                              <Text style={styles.changeText}>
+                                +{item.summary?.additions ?? 0}/ -
+                                {item.summary?.deletions ?? 0}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                    </View>
+                  </Swipeable>
                 );
               }}
             />
           )}
+          <Snackbar
+            message={snackbar.message}
+            visible={snackbar.visible}
+            action={snackbar.action}
+            onDismiss={hideSnackbar}
+            durationMs={6000}
+          />
         </Pressable>
       </Pressable>
     </Modal>

@@ -5,6 +5,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -27,7 +28,7 @@ interface ProjectPickerProps {
 export function ProjectPicker({ visible, onClose }: ProjectPickerProps) {
   const { colors, spacing, typography } = useTheme();
   const { activeDirectory, selectProject } = useConnection();
-  const { data: projects = [], isLoading } = useProjects();
+  const { data: projects = [], isLoading, refetch } = useProjects();
   const [searchQuery, setSearchQuery] = useState("");
   const [accessTimes, setAccessTimes] = useState<Record<string, string>>({});
 
@@ -183,6 +184,14 @@ export function ProjectPicker({ visible, onClose }: ProjectPickerProps) {
             <FlatList
               data={filteredProjects}
               keyExtractor={(item) => item.id}
+              refreshControl={
+                <RefreshControl
+                  colors={[colors.accent]}
+                  onRefresh={() => void refetch()}
+                  refreshing={isLoading}
+                  tintColor={colors.accent}
+                />
+              }
               ListEmptyComponent={
                 <Text style={styles.empty}>
                   {searchQuery
