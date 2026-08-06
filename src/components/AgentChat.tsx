@@ -44,6 +44,8 @@ interface AgentChatProps {
   slashDraft?: string;
   onSlashDraftChange?: (value: string) => void;
   scrollToMessageId?: string | null;
+  onOpenAgentPicker?: () => void;
+  onOpenModelPicker?: () => void;
 }
 
 const INITIAL_SCROLL_METRICS: ChatScrollMetrics = {
@@ -59,6 +61,8 @@ export function AgentChat({
   slashDraft,
   onSlashDraftChange,
   scrollToMessageId,
+  onOpenAgentPicker,
+  onOpenModelPicker,
 }: AgentChatProps) {
   const { colors, spacing, typography } = useTheme();
   const { collapseToolCalls, collapseThinking, thinkingDefaultMode } =
@@ -489,6 +493,8 @@ export function AgentChat({
           commands={commands}
           onSelect={handleSlashSelect}
           query={draft}
+          onOpenAgentPicker={onOpenAgentPicker}
+          onOpenModelPicker={onOpenModelPicker}
         />
         <PromptPresetBar onSelect={handlePresetSelect} />
         <View style={styles.composer}>

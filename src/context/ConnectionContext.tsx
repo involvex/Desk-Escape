@@ -1,6 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import type { OpencodeClient, Project, Session } from "@opencode-ai/sdk/client";
+import type {
+  OpencodeClient,
+  Project,
+  Session,
+  Agent,
+  Model,
+} from "@opencode-ai/sdk/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -71,7 +77,12 @@ interface ConnectionContextValue {
   reconnectAttempt: number;
   queuedMessages: QueuedMessage[];
   eventBus: EventBus;
+  // Agent/Model selection state
+  currentAgentKey: string | null;
+  currentModel: { providerId: string; modelId: string } | null;
   setAgentActive: (active: boolean) => void;
+  setCurrentAgent: (agentKey: string) => void;
+  setCurrentModel: (providerId: string, modelId: string) => void;
   connect: (config: AnyConnectionConfig, password?: string) => Promise<void>;
   disconnect: () => Promise<void>;
   reconnect: () => void;
@@ -274,6 +285,12 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     undefined,
   );
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  // Agent/Model selection state
+  const [currentAgentKey, setCurrentAgentKey] = useState<string | null>(null);
+  const [currentModel, setCurrentModelState] = useState<{
+    providerId: string;
+    modelId: string;
+  } | null>(null);
   const eventBus = useMemo(() => new EventBus(), []);
   const openCodeProvider = useMemo(() => new OpenCodeProvider(), []);
   const cursorProvider = useMemo(() => new CursorProvider(), []);
@@ -477,6 +494,8 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     setProviderType(null);
     setProvider(null);
     setAgentActive(false);
+    setCurrentAgentKey(null);
+    setCurrentModelState(null);
     setContextAttachments([]);
     setStatus("disconnected");
     setErrorMessage(null);
@@ -747,6 +766,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     setContextAttachments([]);
   }, []);
 
+  const setCurrentAgent = useCallback((agentKey: string) => {
+    setCurrentAgentKey(agentKey);
+  }, []);
+
+  const setCurrentModel = useCallback((providerId: string, modelId: string) => {
+    setCurrentModelState({ providerId, modelId });
+  }, []);
+
   useEffect(() => {
     void (async () => {
       const [storedConfig, storedHosts] = await Promise.all([
@@ -829,7 +856,12 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       reconnectAttempt,
       queuedMessages: queue,
       eventBus,
+      // Agent/Model selection state
+      currentAgentKey,
+      currentModel,
       setAgentActive,
+      setCurrentAgent,
+      setCurrentModel,
       connect,
       disconnect,
       reconnect,
@@ -856,6 +888,8 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       connect,
       contextAttachments,
       createSession,
+      currentAgentKey,
+      currentModel,
       cursorConfig,
       deleteSession,
       disconnect,
@@ -874,6 +908,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       deleteRecentHost,
       selectProject,
       selectSession,
+      setAgentActive,
+      setCurrentAgent,
+      setCurrentModel,
       status,
       session,
       testServerConnection,

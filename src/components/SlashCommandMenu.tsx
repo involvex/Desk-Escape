@@ -7,6 +7,8 @@ interface SlashCommandMenuProps {
   commands: Command[];
   query: string;
   onSelect: (command: Command) => void;
+  onOpenAgentPicker?: () => void;
+  onOpenModelPicker?: () => void;
 }
 
 function parseSlashInput(draft: string): { name: string; args: string } {
@@ -43,12 +45,18 @@ export function SlashCommandMenu({
   commands,
   query,
   onSelect,
+  onOpenAgentPicker,
+  onOpenModelPicker,
 }: SlashCommandMenuProps) {
   const { colors, spacing, typography } = useTheme();
   const filtered = useMemo(
     () => filterSlashCommands(commands, query),
     [commands, query],
   );
+
+  const { name } = parseSlashInput(query);
+  const isAgentCommand = name === "agent";
+  const isModelCommand = name === "model";
 
   const styles = useMemo(
     () =>
@@ -81,9 +89,24 @@ export function SlashCommandMenu({
     [colors, spacing, typography],
   );
 
-  if (!query.startsWith("/") || filtered.length === 0) {
+  if (
+    !query.startsWith("/") ||
+    (filtered.length === 0 && !isAgentCommand && !isModelCommand)
+  ) {
     return null;
   }
+
+  const handleItemPress = (command: Command) => {
+    onSelect(command);
+  };
+
+  const handleAgentPress = () => {
+    onOpenAgentPicker?.();
+  };
+
+  const handleModelPress = () => {
+    onOpenModelPicker?.();
+  };
 
   return (
     <View style={styles.container}>
@@ -92,13 +115,30 @@ export function SlashCommandMenu({
         keyExtractor={(item) => item.name}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
-          <Pressable onPress={() => onSelect(item)} style={styles.item}>
+          <Pressable onPress={() => handleItemPress(item)} style={styles.item}>
             <Text style={styles.name}>/{item.name}</Text>
             {item.description ? (
               <Text style={styles.description}>{item.description}</Text>
             ) : null}
           </Pressable>
         )}
+        ListFooterComponent={
+          isAgentCommand || isModelCommand ? (
+            <Pressable
+              onPress={isAgentCommand ? handleAgentPress : handleModelPress}
+              style={styles.item}
+            >
+              <Text style={styles.name}>
+                {isAgentCommand ? "/agent" : "/model"}
+              </Text>
+              <Text style={styles.description}>
+                {isAgentCommand
+                  ? "Open agent picker to switch agent"
+                  : "Open model picker to switch model"}
+              </Text>
+            </Pressable>
+          ) : null
+        }
       />
     </View>
   );

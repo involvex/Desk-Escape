@@ -19,6 +19,8 @@ const AUTO_EXPAND_THINKING_DURING_STREAM_KEY =
 const SHOW_THINKING_TIMING_KEY = "@desk-escape/show-thinking-timing";
 const THINKING_DEFAULT_MODE_KEY = "@desk-escape/thinking-default-mode";
 const TERMINAL_SHELL_KEY = "@desk-escape/terminal-shell";
+const DEFAULT_AGENT_KEY = "@desk-escape/default-agent";
+const DEFAULT_MODEL_KEY = "@desk-escape/default-model";
 
 export type TerminalShell = "auto" | "pwsh" | "bash" | "zsh" | "fish" | "cmd";
 
@@ -80,6 +82,13 @@ interface PreferencesContextValue {
   ) => void;
   terminalShell: TerminalShell;
   setTerminalShell: (shell: TerminalShell) => void;
+  // Default agent/model for new sessions
+  defaultAgentKey: string | null;
+  setDefaultAgentKey: (agentKey: string | null) => void;
+  defaultModel: { providerId: string; modelId: string } | null;
+  setDefaultModel: (
+    model: { providerId: string; modelId: string } | null,
+  ) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -106,6 +115,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   >("default");
   const [terminalShell, setTerminalShellState] =
     useState<TerminalShell>("auto");
+  const [defaultAgentKey, setDefaultAgentKeyState] = useState<string | null>(
+    null,
+  );
+  const [defaultModel, setDefaultModelState] = useState<{
+    providerId: string;
+    modelId: string;
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -119,6 +135,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         showTiming,
         defaultMode,
         savedShell,
+        savedAgent,
+        savedModel,
       ] = await Promise.all([
         AsyncStorage.getItem(AUTO_APPROVE_KEY),
         AsyncStorage.getItem(PROMPT_PRESETS_KEY),
@@ -129,6 +147,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         AsyncStorage.getItem(SHOW_THINKING_TIMING_KEY),
         AsyncStorage.getItem(THINKING_DEFAULT_MODE_KEY),
         AsyncStorage.getItem(TERMINAL_SHELL_KEY),
+        AsyncStorage.getItem(DEFAULT_AGENT_KEY),
+        AsyncStorage.getItem(DEFAULT_MODEL_KEY),
       ]);
 
       if (autoApprove === "true") {
@@ -171,6 +191,16 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         savedShell === "cmd"
       ) {
         setTerminalShellState(savedShell);
+      }
+      if (savedAgent) {
+        setDefaultAgentKeyState(savedAgent);
+      }
+      if (savedModel) {
+        try {
+          setDefaultModelState(JSON.parse(savedModel));
+        } catch {
+          // Ignore invalid model
+        }
       }
     })();
   }, []);
@@ -226,6 +256,27 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.setItem(TERMINAL_SHELL_KEY, shell);
   }, []);
 
+  const setDefaultAgentKey = useCallback((agentKey: string | null) => {
+    setDefaultAgentKeyState(agentKey);
+    if (agentKey) {
+      void AsyncStorage.setItem(DEFAULT_AGENT_KEY, agentKey);
+    } else {
+      void AsyncStorage.removeItem(DEFAULT_AGENT_KEY);
+    }
+  }, []);
+
+  const setDefaultModel = useCallback(
+    (model: { providerId: string; modelId: string } | null) => {
+      setDefaultModelState(model);
+      if (model) {
+        void AsyncStorage.setItem(DEFAULT_MODEL_KEY, JSON.stringify(model));
+      } else {
+        void AsyncStorage.removeItem(DEFAULT_MODEL_KEY);
+      }
+    },
+    [],
+  );
+
   return (
     <PreferencesContext.Provider
       value={{
@@ -247,6 +298,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         setThinkingDefaultMode,
         terminalShell,
         setTerminalShell,
+        defaultAgentKey,
+        setDefaultAgentKey,
+        defaultModel,
+        setDefaultModel,
       }}
     >
       {children}

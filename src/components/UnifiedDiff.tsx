@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Animated, {
@@ -108,7 +109,8 @@ function useWorkspaceDiff() {
 export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
   const { colors, spacing, typography } = useTheme();
   const { data: fileDiffs = [], isLoading, refetch } = useWorkspaceDiff();
-  const translateX = useSharedValue(360);
+  const { width: screenWidth } = useWindowDimensions();
+  const translateX = useSharedValue(screenWidth);
 
   const styles = useMemo(
     () =>
@@ -122,6 +124,7 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
           borderLeftColor: colors.border,
           borderLeftWidth: 1,
           height: "100%",
+          maxWidth: 480,
           paddingTop: spacing.lg,
           position: "absolute",
           right: 0,
@@ -177,8 +180,10 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
   useEffect(() => {
     // Reanimated shared values are intentionally mutated on the UI thread.
     // eslint-disable-next-line react-hooks/immutability
-    translateX.value = withTiming(visible ? 0 : 360, { duration: 220 });
-  }, [visible, translateX]);
+    translateX.value = withTiming(visible ? 0 : screenWidth, {
+      duration: 220,
+    });
+  }, [visible, screenWidth, translateX]);
 
   return (
     <>

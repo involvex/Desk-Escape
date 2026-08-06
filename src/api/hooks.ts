@@ -1,9 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type {
+  Agent,
+  AssistantMessage,
   Command,
   Config,
   EventSubscribeResponse,
+  Model,
+  Provider,
   Session,
 } from "@opencode-ai/sdk/client";
 import {
@@ -28,6 +32,12 @@ export const commandsKey = (directory?: string | null) =>
   ["commands", directory ?? "default"] as const;
 
 export const configKey = ["opencode-config"] as const;
+
+export const agentsKey = (directory?: string | null) =>
+  ["agents", directory ?? "default"] as const;
+
+export const modelsKey = (directory?: string | null) =>
+  ["models", directory ?? "default"] as const;
 
 async function fetchSessionMessages(
   client: NonNullable<ReturnType<typeof useConnection>["client"]>,
@@ -113,6 +123,154 @@ export function useCommands() {
       return result.data ?? [];
     },
     staleTime: 120_000,
+  });
+}
+
+export function useAgents() {
+  const { client, activeDirectory } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client),
+    queryKey: agentsKey(activeDirectory),
+    queryFn: async (): Promise<Record<string, Agent>> => {
+      if (!client) {
+        return {};
+      }
+      const result = await client.config.get(
+        withDirectoryQuery(activeDirectory),
+      );
+      const agentConfig = result.data?.agent ?? {};
+      // Convert AgentConfig to Agent (filter out undefined)
+      const agents: Record<string, Agent> = {};
+      for (const [key, value] of Object.entries(agentConfig)) {
+        if (value) {
+          agents[key] = value as Agent;
+        }
+      }
+      return agents;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useModels() {
+  const { client, activeDirectory } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client),
+    queryKey: modelsKey(activeDirectory),
+    queryFn: async (): Promise<Record<string, Provider>> => {
+      if (!client) {
+        return {};
+      }
+      const result = await client.config.get(
+        withDirectoryQuery(activeDirectory),
+      );
+      const providerConfig = result.data?.provider ?? {};
+      // Convert ProviderConfig to Provider (filter out undefined)
+      const providers: Record<string, Provider> = {};
+      for (const [key, value] of Object.entries(providerConfig)) {
+        if (value && value.models) {
+          providers[key] = {
+            id: key,
+            name: value.name ?? key,
+            source: "config",
+            env: value.env ?? [],
+            options: value.options ?? {},
+            models: value.models as Record<string, Model>,
+          };
+        }
+      }
+      return providers;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useCurrentAgent() {
+  const { client, sessionId, activeDirectory } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client && sessionId),
+    queryKey: ["session", "current-agent", sessionId],
+    queryFn: async (): Promise<Agent | null> => {
+      if (!client || !sessionId) {
+        return null;
+      }
+      const configResult = await client.config.get(
+        withDirectoryQuery(activeDirectory),
+      );
+      const agents = configResult.data?.agent ?? {};
+      const agentKeys = Object.keys(agents);
+      if (agentKeys.length === 0) return null;
+
+      // Try to get agent from session
+      const sessionResult = await client.session.get({
+        path: { id: sessionId },
+        ...withDirectoryQuery(activeDirectory),
+      });
+
+      // For now, return the first agent as default
+      // In the future, we could track which agent was used in the session
+      const firstAgentKey = agentKeys[0];
+      return firstAgentKey ? (agents[firstAgentKey] as Agent) : null;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useCurrentModel() {
+  const { client, sessionId, activeDirectory } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client && sessionId),
+    queryKey: ["session", "current-model", sessionId],
+    queryFn: async (): Promise<{ providerId: string; model: Model } | null> => {
+      if (!client || !sessionId) {
+        return null;
+      }
+      const configResult = await client.config.get(
+        withDirectoryQuery(activeDirectory),
+      );
+      const providers = configResult.data?.provider ?? {};
+
+      // Get model from session's messages (last assistant message)
+      const messagesResult = await client.session.messages({
+        path: { id: sessionId },
+        ...withDirectoryQuery(activeDirectory),
+      });
+      const messages = messagesResult.data ?? [];
+      const lastAssistant = [...messages]
+        .reverse()
+        .find((m) => m.info.role === "assistant") as
+        { info: AssistantMessage; parts: unknown[] } | undefined;
+
+      if (lastAssistant) {
+        const modelId = lastAssistant.info.modelID;
+        const providerId = lastAssistant.info.providerID;
+        const provider = providers[providerId];
+        if (provider && provider.models && provider.models[modelId]) {
+          return { providerId, model: provider.models[modelId] as Model };
+        }
+      }
+
+      // Fallback to config default model
+      const defaultModel = configResult.data?.model;
+      if (defaultModel) {
+        const parts = defaultModel.split("/");
+        const providerId = parts[0];
+        const modelId = parts[1];
+        if (providerId && modelId) {
+          const provider = providers[providerId];
+          if (provider && provider.models && provider.models[modelId]) {
+            return { providerId, model: provider.models[modelId] as Model };
+          }
+        }
+      }
+
+      return null;
+    },
+    staleTime: 30_000,
   });
 }
 

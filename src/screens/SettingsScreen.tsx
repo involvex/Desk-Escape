@@ -97,6 +97,10 @@ export function SettingsScreen({ navigation }: Props) {
     setThinkingDefaultMode,
     terminalShell,
     setTerminalShell,
+    defaultAgentKey,
+    setDefaultAgentKey,
+    defaultModel,
+    setDefaultModel,
   } = usePreferences();
   const { lockState, authenticate, setBiometricLockEnabled } =
     useBiometricLockContext();
@@ -491,6 +495,76 @@ export function SettingsScreen({ navigation }: Props) {
                 </Pressable>
               ))}
             </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Default Agent</Text>
+            <Text style={styles.meta}>
+              Used for new sessions. Change per-session via the agent chip in
+              the toolbar.
+            </Text>
+            {defaultAgentKey ? (
+              <Pressable
+                onPress={() => setDefaultAgentKey(null)}
+                style={[
+                  styles.row,
+                  { backgroundColor: colors.surfaceElevated },
+                ]}
+              >
+                <View
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Text style={styles.rowLabel}>
+                    Current: {defaultAgentKey}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.danger }}>Clear</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.meta}>
+                No default agent set. First available agent will be used.
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Default Model</Text>
+            <Text style={styles.meta}>
+              Used for new sessions. Change per-session via the model chip in
+              the toolbar.
+            </Text>
+            {defaultModel ? (
+              <Pressable
+                onPress={() => setDefaultModel(null)}
+                style={[
+                  styles.row,
+                  { backgroundColor: colors.surfaceElevated },
+                ]}
+              >
+                <View
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Text style={styles.rowLabel}>
+                    Current: {defaultModel.providerId}/{defaultModel.modelId}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.danger }}>Clear</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.meta}>
+                No default model set. First available model will be used.
+              </Text>
+            )}
           </View>
 
           <View style={styles.section}>

@@ -22,6 +22,8 @@ import {
 import { getWorktreeName } from "@/api/client";
 import { useCurrentProject, useSessionMessages } from "@/api/hooks";
 import { AgentChat } from "@/components/AgentChat";
+import { AgentPicker } from "@/components/AgentPicker";
+import { ModelPicker } from "@/components/ModelPicker";
 import {
   CommandPalette,
   themeCycleOrder,
@@ -60,6 +62,10 @@ export function WorkspaceScreen() {
     selectSession,
     selectProject,
     createSession,
+    currentAgentKey,
+    currentModel,
+    setCurrentAgent,
+    setCurrentModel,
   } = useConnection();
   const { data: currentProject } = useCurrentProject();
   const { data: messages = [] } = useSessionMessages(session?.id ?? null);
@@ -74,6 +80,8 @@ export function WorkspaceScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTargetId, setSearchTargetId] = useState<string | null>(null);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const authAttempted = useRef(false);
 
   const { lockState, authenticate, initialized } = useBiometricLockContext();
@@ -157,8 +165,9 @@ export function WorkspaceScreen() {
           flexDirection: "row",
         },
         landscapeRail: {
-          maxWidth: 320,
-          width: "35%",
+          maxWidth: 240,
+          minWidth: 180,
+          width: "28%",
         },
         landscapeMain: {
           flex: 1,
@@ -280,6 +289,38 @@ export function WorkspaceScreen() {
     ],
   );
 
+  const handleOpenAgentPicker = useCallback(() => {
+    setAgentPickerOpen(true);
+  }, []);
+
+  const handleCloseAgentPicker = useCallback(() => {
+    setAgentPickerOpen(false);
+  }, []);
+
+  const handleSelectAgent = useCallback(
+    (agentKey: string, agent: { name?: string; color?: string }) => {
+      setCurrentAgent(agentKey);
+      setAgentPickerOpen(false);
+    },
+    [setCurrentAgent],
+  );
+
+  const handleOpenModelPicker = useCallback(() => {
+    setModelPickerOpen(true);
+  }, []);
+
+  const handleCloseModelPicker = useCallback(() => {
+    setModelPickerOpen(false);
+  }, []);
+
+  const handleSelectModel = useCallback(
+    (providerId: string, modelId: string, model: { name?: string }) => {
+      setCurrentModel(providerId, modelId);
+      setModelPickerOpen(false);
+    },
+    [setCurrentModel],
+  );
+
   const statusColor =
     status === "connected"
       ? colors.success
@@ -299,6 +340,8 @@ export function WorkspaceScreen() {
       onSlashDraftChange={setSlashDraft}
       scrollToMessageId={searchTargetId}
       slashDraft={slashDraft}
+      onOpenAgentPicker={handleOpenAgentPicker}
+      onOpenModelPicker={handleOpenModelPicker}
     />
   );
 
@@ -396,6 +439,8 @@ export function WorkspaceScreen() {
           onCreateSession={() => void createSession()}
           onOpenPalette={() => setPaletteOpen(true)}
           onOpenSessions={() => setSessionPickerOpen(true)}
+          onOpenAgentPicker={handleOpenAgentPicker}
+          onOpenModelPicker={handleOpenModelPicker}
         />
       ) : null}
 
@@ -451,6 +496,19 @@ export function WorkspaceScreen() {
         onClose={() => setSearchOpen(false)}
         messages={messages}
         onSelectMessage={(messageId) => setSearchTargetId(messageId)}
+      />
+      <AgentPicker
+        onClose={handleCloseAgentPicker}
+        visible={agentPickerOpen}
+        currentAgentKey={currentAgentKey}
+        onSelectAgent={handleSelectAgent}
+      />
+      <ModelPicker
+        onClose={handleCloseModelPicker}
+        visible={modelPickerOpen}
+        currentProviderId={currentModel?.providerId ?? null}
+        currentModelId={currentModel?.modelId ?? null}
+        onSelectModel={handleSelectModel}
       />
     </SafeAreaView>
   );
