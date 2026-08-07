@@ -633,13 +633,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         const remaining = await provider.listSessions();
         const next = remaining[0];
         if (next) {
-          setSession({
-            id: next.id,
-            title: next.title,
-            createdAt: next.createdAt,
-            updatedAt: next.updatedAt,
-            status: next.status,
-          } as unknown as Session);
+          setSession(toSdkSession(next));
           await saveDirectorySessionId(
             config?.baseUrl ?? "",
             activeDirectory,
@@ -660,6 +654,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       session?.id,
       createSession,
       activeDirectory,
+      toSdkSession,
     ],
   );
 
