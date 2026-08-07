@@ -69,8 +69,8 @@ export class OpenCodeProvider implements AgentProvider {
     return (result.data ?? []).map((s: Session) => ({
       id: s.id,
       title: s.title ?? "Untitled",
-      createdAt: "",
-      updatedAt: "",
+      createdAt: s.time?.created ? String(s.time.created) : "",
+      updatedAt: s.time?.updated ? String(s.time.updated) : "",
       status: "active" as const,
     }));
   }
@@ -89,8 +89,8 @@ export class OpenCodeProvider implements AgentProvider {
     return {
       id: s.id,
       title: s.title ?? "Untitled",
-      createdAt: "",
-      updatedAt: "",
+      createdAt: s.time?.created ? String(s.time.created) : "",
+      updatedAt: s.time?.updated ? String(s.time.updated) : "",
       status: "active",
     };
   }
@@ -114,8 +114,8 @@ export class OpenCodeProvider implements AgentProvider {
     return {
       id: s.id,
       title: s.title ?? "Untitled",
-      createdAt: "",
-      updatedAt: "",
+      createdAt: s.time?.created ? String(s.time.created) : "",
+      updatedAt: s.time?.updated ? String(s.time.updated) : "",
       status: "active",
     };
   }

@@ -75,6 +75,13 @@ export function AgentChat({
     status,
   } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
+
+  // Filter out any malformed messages
+  const validMessages = useMemo(
+    () => messages.filter((m) => m?.info?.id),
+    [messages],
+  );
+
   const { data: commands = [] } = useCommands();
   const sendPrompt = useSendPrompt(sessionId);
   const executeCommand = useExecuteCommand(sessionId);
@@ -98,7 +105,7 @@ export function AgentChat({
   useSessionMessageStream(sessionId);
 
   const hintCommand = commands[0]?.name ?? "help";
-  const lastMessageId = messages.at(-1)?.info.id;
+  const lastMessageId = validMessages.at(-1)?.info.id;
 
   const defaultCollapsed =
     sessionCollapseMode === "collapsed"
@@ -323,7 +330,9 @@ export function AgentChat({
 
   useEffect(() => {
     if (!scrollToMessageId || !listRef.current) return;
-    const index = messages.findIndex((m) => m.info.id === scrollToMessageId);
+    const index = validMessages.findIndex(
+      (m) => m.info.id === scrollToMessageId,
+    );
     if (index === -1) return;
     requestAnimationFrame(() => {
       listRef.current?.scrollToIndex({
@@ -332,7 +341,7 @@ export function AgentChat({
         viewPosition: 0.3,
       });
     });
-  }, [scrollToMessageId, messages]);
+  }, [scrollToMessageId, validMessages]);
 
   const submitText = useCallback(
     (text: string) => {
@@ -400,17 +409,23 @@ export function AgentChat({
     [executeCommand, sessionId],
   );
 
-  const renderItem = ({ item }: { item: MessageWithParts }) => (
-    <ChatMessageBubble
-      collapseResetKey={collapseResetKey}
-      defaultCollapsed={defaultCollapsed}
-      thinkingDefaultCollapsed={thinkingDefaultCollapsed}
-      message={item}
-      onRunCommand={handleRunCommand}
-    />
-  );
+  const renderItem = ({ item }: { item: MessageWithParts }) => {
+    // Defensive: skip messages without required structure
+    if (!item?.info?.id) {
+      return null;
+    }
+    return (
+      <ChatMessageBubble
+        collapseResetKey={collapseResetKey}
+        defaultCollapsed={defaultCollapsed}
+        thinkingDefaultCollapsed={thinkingDefaultCollapsed}
+        message={item}
+        onRunCommand={handleRunCommand}
+      />
+    );
+  };
 
-  const isEmpty = !isLoading && messages.length === 0;
+  const isEmpty = !isLoading && validMessages.length === 0;
   const isPending = sendPrompt.isPending || executeCommand.isPending;
 
   return (
@@ -436,7 +451,7 @@ export function AgentChat({
             styles.listContent,
             isEmpty ? styles.listContentEmpty : null,
           ]}
-          data={messages}
+          data={validMessages}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(item) => item.info.id}
           ListEmptyComponent={

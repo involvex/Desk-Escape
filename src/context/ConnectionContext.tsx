@@ -503,6 +503,33 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     setBasicAuthCredential(null);
   }, [provider, eventBus]);
 
+  // Helper to convert ProviderSession to SDK Session format
+  const toSdkSession = useCallback(
+    (session: {
+      id: string;
+      title: string;
+      createdAt: string;
+      updatedAt: string;
+      status: string;
+    }): Session => {
+      const created = session.createdAt
+        ? Number(session.createdAt)
+        : Date.now();
+      const updated = session.updatedAt
+        ? Number(session.updatedAt)
+        : Date.now();
+      return {
+        id: session.id,
+        projectID: "",
+        directory: activeDirectory ?? "",
+        title: session.title,
+        version: "1",
+        time: { created, updated },
+      };
+    },
+    [activeDirectory],
+  );
+
   const selectSession = useCallback(
     async (sessionId: string) => {
       if (!provider) {
@@ -510,13 +537,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }
 
       const session = await provider.selectSession(sessionId);
-      setSession({
-        id: session.id,
-        title: session.title,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        status: session.status,
-      } as unknown as Session);
+      setSession(toSdkSession(session));
       await saveDirectorySessionId(
         config?.baseUrl ?? "",
         activeDirectory,
@@ -525,7 +546,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       // Invalidate cached session data so next render fetches fresh state
       await queryClient.invalidateQueries();
     },
-    [provider, config, activeDirectory, queryClient],
+    [provider, config, activeDirectory, queryClient, toSdkSession],
   );
 
   const selectProject = useCallback(
@@ -551,13 +572,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       if (savedSessionId) {
         try {
           const result = await provider.selectSession(savedSessionId);
-          setSession({
-            id: result.id,
-            title: result.title,
-            createdAt: result.createdAt,
-            updatedAt: result.updatedAt,
-            status: result.status,
-          } as unknown as Session);
+          setSession(toSdkSession(result));
           setContextAttachments([]);
           await queryClient.invalidateQueries();
           return;
@@ -576,20 +591,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       } else {
         // 3. No sessions exist — create one
         const created = await provider.createSession("Desk Escape");
-        setSession({
-          id: created.id,
-          title: created.title,
-          createdAt: created.createdAt,
-          updatedAt: created.updatedAt,
-          status: created.status,
-        } as unknown as Session);
+        setSession(toSdkSession(created));
         await saveDirectorySessionId(config.baseUrl, worktree, created.id);
       }
 
       setContextAttachments([]);
       await queryClient.invalidateQueries();
     },
-    [client, config, provider, queryClient],
+    [client, config, provider, queryClient, toSdkSession],
   );
 
   const createSession = useCallback(
@@ -599,22 +608,17 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }
 
       const session = await provider.createSession(title);
-      setSession({
-        id: session.id,
-        title: session.title,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        status: session.status,
-      } as unknown as Session);
+      const sdkSession = toSdkSession(session);
+      setSession(sdkSession);
       await saveDirectorySessionId(
         config?.baseUrl ?? "",
         activeDirectory,
         session.id,
       );
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      return session as unknown as Session;
+      return sdkSession;
     },
-    [config, provider, queryClient, activeDirectory],
+    [config, provider, queryClient, activeDirectory, toSdkSession],
   );
 
   const deleteSession = useCallback(
