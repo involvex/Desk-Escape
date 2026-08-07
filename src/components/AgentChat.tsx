@@ -279,6 +279,21 @@ export function AgentChat({
     setScrollMetrics((current) => ({ ...current, offsetY: offset }));
   }, []);
 
+  const onScrollToIndexFailed = useCallback((info: { index: number }) => {
+    // Fall back to scrollToOffset when getItemLayout is not available
+    // Use a rough estimate: average ~200px per message
+    const estimatedOffset = info.index * 200;
+    const maxOffset = Math.max(
+      scrollMetricsRef.current.contentHeight -
+        scrollMetricsRef.current.layoutHeight,
+      0,
+    );
+    listRef.current?.scrollToOffset({
+      offset: Math.min(estimatedOffset, maxOffset),
+      animated: true,
+    });
+  }, []);
+
   const scrollToTop = useCallback(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
@@ -422,11 +437,6 @@ export function AgentChat({
             isEmpty ? styles.listContentEmpty : null,
           ]}
           data={messages}
-          getItemLayout={(_data, index) => ({
-            length: 120,
-            offset: 120 * index,
-            index,
-          })}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(item) => item.info.id}
           ListEmptyComponent={
@@ -470,6 +480,7 @@ export function AgentChat({
           onContentSizeChange={handleContentSizeChange}
           onLayout={handleListLayout}
           onScroll={handleScroll}
+          onScrollToIndexFailed={onScrollToIndexFailed}
           renderItem={renderItem}
           scrollEventThrottle={16}
           style={styles.list}

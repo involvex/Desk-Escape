@@ -522,8 +522,10 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         activeDirectory,
         sessionId,
       );
+      // Invalidate cached session data so next render fetches fresh state
+      await queryClient.invalidateQueries();
     },
-    [provider, config, activeDirectory],
+    [provider, config, activeDirectory, queryClient],
   );
 
   const selectProject = useCallback(

@@ -72,7 +72,12 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
 
   const handleSelect = useCallback(
     (session: Session) => {
-      void selectSession(session.id).then(() => onClose());
+      void selectSession(session.id)
+        .then(() => onClose())
+        .catch((error: unknown) => {
+          console.error("Failed to select session:", error);
+          onClose();
+        });
     },
     [selectSession, onClose],
   );
