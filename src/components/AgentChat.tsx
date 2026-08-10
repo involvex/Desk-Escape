@@ -145,7 +145,6 @@ export function AgentChat({
           flex: 1,
         },
         listContent: {
-          flexGrow: 1,
           gap: spacing.sm,
           paddingBottom: spacing.md,
           paddingRight: spacing.sm,

@@ -17,6 +17,7 @@ import {
   ChevronDown,
   LogOut,
   MoreVertical,
+  Plus,
   Search,
   Settings,
 } from "lucide-react-native";
@@ -380,6 +381,20 @@ export function WorkspaceScreen() {
 
       {overflowOpen ? (
         <View style={styles.overflowMenu}>
+          <Pressable
+            onPress={() => {
+              setOverflowOpen(false);
+              void createSession();
+            }}
+            style={styles.overflowItem}
+          >
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Plus color={colors.textMuted} size={16} />
+              <Text style={styles.overflowText}>New session</Text>
+            </View>
+          </Pressable>
           <Pressable
             onPress={() => {
               setOverflowOpen(false);
