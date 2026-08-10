@@ -60,9 +60,11 @@
     "start": "expo start",
     "postinstall": "bun scripts/build-terminal-shell.mjs",
     "build:terminal-shell": "bun scripts/build-terminal-shell.mjs",
+    "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0",
     "android": "bun run build:terminal-shell && expo run:android",
     "android:clean": "cmd /c \"cd android && gradlew.bat clean\"",
     "android:install": "bun run build:terminal-shell && expo run:android --variant release --no-bundler",
+    "android:release": "bun run check && bunx expo prebuild --platform android && bunx expo run:android --variant release",
     "check": "bun run lint:fix && bun run format && bun run typecheck && bun run check:install && bun run doctor",
     "doctor": "bunx expo-doctor --verbose",
     "check:install": "bunx expo install --check",
@@ -73,7 +75,8 @@
     "format": "prettier . --write",
     "typecheck": "tsc --noEmit",
     "validate:pty": "bun scripts/validate-pty-ws.mjs",
-    "validate:terminal": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-terminal-android.ps1"
+    "validate:terminal": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-terminal-android.ps1",
+    "release": "powershell -File scripts/release.ps1"
   },
   "packageManager": "bun@1.4.0",
   "license": "MIT",

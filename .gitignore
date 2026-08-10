@@ -42,3 +42,4 @@ yarn-error.*
 /android
 screenshot.png
 android-run.log
+.cline
