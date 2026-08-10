@@ -153,9 +153,7 @@ export function AgentChat({
           flexGrow: 1,
           justifyContent: "center",
         },
-        composerWrap: {
-          paddingBottom: spacing.sm,
-        },
+        composerWrap: {},
         composer: {
           alignItems: "flex-end",
           backgroundColor: colors.surface,

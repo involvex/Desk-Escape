@@ -12,7 +12,10 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import {
   ChevronDown,
   LogOut,
@@ -86,6 +89,7 @@ export function WorkspaceScreen() {
   const authAttempted = useRef(false);
 
   const { width: screenWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const { lockState, authenticate, initialized } = useBiometricLockContext();
 
@@ -162,7 +166,9 @@ export function WorkspaceScreen() {
         },
         content: {
           flex: 1,
-          paddingBottom: 56,
+        },
+        flexFill: {
+          flex: 1,
         },
         landscapeRow: {
           flex: 1,
@@ -332,7 +338,7 @@ export function WorkspaceScreen() {
         ? colors.warning
         : colors.danger;
 
-  const chromeInset = 56;
+  const chromeInset = 56 + insets.bottom;
   const isTablet = screenWidth >= 600;
   const useLandscapeSplit = isTablet && isLandscape && activePanel === "agent";
 
@@ -350,7 +356,7 @@ export function WorkspaceScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
       {lockState === "locked" && biometricAvailable && initialized ? (
         <View style={styles.gateOverlay}>
           <ActivityIndicator size="large" color={colors.textMuted} />
@@ -467,7 +473,7 @@ export function WorkspaceScreen() {
           </View>
         ) : (
           <GestureDetector gesture={panGesture}>
-            <View style={styles.content}>{agentChat}</View>
+            <View style={styles.flexFill}>{agentChat}</View>
           </GestureDetector>
         )}
 

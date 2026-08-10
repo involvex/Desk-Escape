@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   FileText,
   MessageSquare,
@@ -35,6 +36,7 @@ export function BottomNavigation({
   onMorePress,
 }: BottomNavigationProps) {
   const { colors, spacing, typography } = useTheme();
+  const insets = useSafeAreaInsets();
   const activeIndex = PANELS.findIndex((p) => p.id === activePanel);
 
   const styles = useMemo(
@@ -45,12 +47,7 @@ export function BottomNavigation({
           borderTopColor: colors.border,
           borderTopWidth: 1,
           flexDirection: "row",
-          height: 56,
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 100,
+          paddingBottom: insets.bottom,
         },
         tab: {
           alignItems: "center",
@@ -84,7 +81,7 @@ export function BottomNavigation({
           borderTopRightRadius: 3,
         },
       }),
-    [colors, spacing, typography],
+    [colors, insets.bottom, spacing, typography],
   );
 
   const tabWidth = 1 / PANELS.length;
