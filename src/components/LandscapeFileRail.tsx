@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { ChevronLeft } from "lucide-react-native";
 import { useFileList } from "@/api/hooks";
@@ -17,7 +18,9 @@ import { getFileIcon } from "@/utils/file-icon";
 export function LandscapeFileRail() {
   const { colors, spacing, typography } = useTheme();
   const { addContextAttachment } = useConnection();
+  const { width: screenWidth } = useWindowDimensions();
   const [currentPath, setCurrentPath] = useState(".");
+  const railWidth = Math.min(Math.max(screenWidth * 0.28, 160), 200);
   const { data = [], isLoading } = useFileList(currentPath);
 
   const styles = useMemo(
@@ -28,6 +31,9 @@ export function LandscapeFileRail() {
           borderRightColor: colors.border,
           borderRightWidth: 1,
           flex: 1,
+          minWidth: 160,
+          maxWidth: 200,
+          width: railWidth,
         },
         header: {
           alignItems: "center",
@@ -67,7 +73,7 @@ export function LandscapeFileRail() {
           padding: spacing.md,
         },
       }),
-    [colors, spacing, typography],
+    [colors, spacing, typography, railWidth],
   );
 
   const nodes = data as FileNode[];

@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
@@ -32,14 +33,13 @@ import {
 import { FileDrawer } from "@/components/FileDrawer";
 import { MessageSearchBar } from "@/components/MessageSearchBar";
 import { LandscapeFileRail } from "@/components/LandscapeFileRail";
-import { PanelTabs } from "@/components/PanelTabs";
+import { BottomNavigation } from "@/components/BottomNavigation";
 import { OfflineQueueIndicator } from "@/components/OfflineQueueIndicator";
 import { PermissionBanner } from "@/components/PermissionBanner";
 import { ProjectPicker } from "@/components/ProjectPicker";
 import { SessionPicker } from "@/components/SessionPicker";
 import { TerminalPanel } from "@/components/TerminalPanel";
 import { UnifiedDiff } from "@/components/UnifiedDiff";
-import { WorkspaceToolbar } from "@/components/WorkspaceToolbar";
 import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { useConnection } from "@/context/ConnectionContext";
 import { useOrientation } from "@/context/OrientationContext";
@@ -83,6 +83,8 @@ export function WorkspaceScreen() {
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const authAttempted = useRef(false);
+
+  const { width: screenWidth } = useWindowDimensions();
 
   const { lockState, authenticate, initialized } = useBiometricLockContext();
 
@@ -132,7 +134,7 @@ export function WorkspaceScreen() {
           flexDirection: "row",
           gap: spacing.sm,
           paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
+          paddingVertical: spacing.xs,
         },
         headerTextWrap: {
           flex: 1,
@@ -150,15 +152,16 @@ export function WorkspaceScreen() {
         subtitle: {
           color: colors.textMuted,
           fontSize: typography.caption,
-          marginTop: 2,
+          marginTop: 1,
         },
         statusDot: {
           borderRadius: 999,
-          height: 8,
-          width: 8,
+          height: 6,
+          width: 6,
         },
         content: {
           flex: 1,
+          paddingBottom: 56,
         },
         landscapeRow: {
           flex: 1,
@@ -179,7 +182,7 @@ export function WorkspaceScreen() {
           borderWidth: 1,
           position: "absolute",
           right: spacing.md,
-          top: 52,
+          top: 44,
           zIndex: 20,
         },
         overflowItem: {
@@ -328,9 +331,9 @@ export function WorkspaceScreen() {
         ? colors.warning
         : colors.danger;
 
-  const showToolbar = activePanel === "agent";
-  const chromeInset = showToolbar ? 100 : 56;
-  const useLandscapeSplit = isLandscape && activePanel === "agent";
+  const chromeInset = 56;
+  const isTablet = screenWidth >= 600;
+  const useLandscapeSplit = isTablet && isLandscape && activePanel === "agent";
 
   const agentChat = (
     <AgentChat
@@ -431,19 +434,6 @@ export function WorkspaceScreen() {
         </View>
       ) : null}
 
-      <PanelTabs activePanel={activePanel} onChange={handlePanelChange} />
-
-      {showToolbar ? (
-        <WorkspaceToolbar
-          compact={isLandscape}
-          onCreateSession={() => void createSession()}
-          onOpenPalette={() => setPaletteOpen(true)}
-          onOpenSessions={() => setSessionPickerOpen(true)}
-          onOpenAgentPicker={handleOpenAgentPicker}
-          onOpenModelPicker={handleOpenModelPicker}
-        />
-      ) : null}
-
       <PermissionBanner />
 
       <View style={styles.content}>
@@ -477,6 +467,13 @@ export function WorkspaceScreen() {
         />
         <UnifiedDiff onClose={() => setDiffOpen(false)} visible={diffOpen} />
       </View>
+
+      <BottomNavigation
+        activePanel={activePanel}
+        onChange={handlePanelChange}
+        showMore
+        onMorePress={() => setOverflowOpen((current) => !current)}
+      />
 
       <SessionPicker
         onClose={() => setSessionPickerOpen(false)}

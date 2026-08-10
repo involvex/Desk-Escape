@@ -11,11 +11,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Plus, Search, Trash2, X } from "lucide-react-native";
+import { Plus, Search, Trash2, X, GitBranch, Clock } from "lucide-react-native";
 import { useSessions } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
-import { rankSessions } from "@/utils/session-ranking";
+import {
+  rankSessions,
+  groupSessionsByTime,
+  getSessionTimeAgo,
+  formatSessionDate,
+} from "@/utils/session-ranking";
 import { Snackbar } from "@/components/Snackbar";
 import { Swipeable } from "react-native-gesture-handler";
 import Animated from "react-native-reanimated";
@@ -25,15 +30,20 @@ interface SessionPickerProps {
   onClose: () => void;
 }
 
-function timeAgo(timestamp: number, now: number): string {
-  const seconds = Math.floor((now - timestamp) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+interface SessionGroup {
+  group: "today" | "yesterday" | "this-week" | "older";
+  label: string;
+  sessions: Session[];
+}
+
+type FlatListItem =
+  | { type: "header"; section: SessionGroup }
+  | { type: "item"; session: Session; section: SessionGroup };
+
+function isHeaderItem(
+  item: FlatListItem,
+): item is { type: "header"; section: SessionGroup } {
+  return item.type === "header";
 }
 
 export function SessionPicker({ visible, onClose }: SessionPickerProps) {
@@ -43,6 +53,9 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
   const { data: sessions = [], isLoading, refetch } = useSessions();
   const [now] = useState(() => Date.now());
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    new Set(["today", "yesterday"]),
+  );
   const [snackbar, setSnackbar] = useState<{
     message: string;
     action?: { label: string; onPress: () => void };
@@ -58,6 +71,11 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
       (session.title || "").toLowerCase().includes(query),
     );
   }, [rankedSessions, searchQuery]);
+
+  const groupedSessions = useMemo(
+    () => groupSessionsByTime(filteredSessions),
+    [filteredSessions],
+  );
 
   const showSnackbar = useCallback(
     (message: string, action?: { label: string; onPress: () => void }) => {
@@ -107,6 +125,18 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
     [deleteSession, refetch, showSnackbar, hideSnackbar, createSession],
   );
 
+  const toggleGroup = useCallback((group: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) {
+        next.delete(group);
+      } else {
+        next.add(group);
+      }
+      return next;
+    });
+  }, []);
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -154,6 +184,26 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           flex: 1,
           paddingVertical: spacing.sm,
         },
+        groupHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginHorizontal: spacing.md,
+          marginTop: spacing.md,
+          marginBottom: spacing.xs,
+          paddingVertical: spacing.xs,
+        },
+        groupTitle: {
+          color: colors.textMuted,
+          fontSize: typography.caption,
+          fontWeight: "600",
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+        },
+        groupCount: {
+          color: colors.textMuted,
+          fontSize: typography.caption,
+        },
         item: {
           alignItems: "center",
           borderColor: colors.border,
@@ -170,6 +220,7 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
         },
         itemBody: {
           flex: 1,
+          minWidth: 0,
         },
         itemTitle: {
           color: colors.text,
@@ -180,6 +231,22 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
           color: colors.textMuted,
           fontSize: typography.caption,
           marginTop: spacing.xs,
+        },
+        metaRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: spacing.sm,
+          marginTop: spacing.xs,
+        },
+        metaItem: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+        },
+        metaText: {
+          color: colors.textMuted,
+          fontSize: 10,
         },
         activityRow: {
           alignItems: "center",
@@ -253,6 +320,121 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
     [colors, spacing, typography],
   );
 
+  const renderSectionHeader = ({ section }: { section: SessionGroup }) => {
+    const isExpanded = expandedGroups.has(section.group);
+    return (
+      <Pressable
+        onPress={() => toggleGroup(section.group)}
+        style={styles.groupHeader}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: spacing.xs,
+          }}
+        >
+          <Text style={styles.groupTitle}>{section.label}</Text>
+          <Text style={styles.groupCount}>({section.sessions.length})</Text>
+        </View>
+        <Text
+          style={{
+            color: colors.textMuted,
+            fontSize: 10,
+            transform: [{ rotate: isExpanded ? "180deg" : "0deg" }],
+          }}
+        >
+          ▼
+        </Text>
+      </Pressable>
+    );
+  };
+
+  const renderItem = ({ item }: { item: Session }) => {
+    const isActive = item.id === sessionId;
+    const totalChanges =
+      (item.summary?.additions ?? 0) + (item.summary?.deletions ?? 0);
+    const minutesAgo = (now - item.time.updated) / 60_000;
+    const isRecent = minutesAgo < 5;
+
+    const renderRightActions = (progress: any) => {
+      return (
+        <Animated.View
+          style={[
+            styles.rightAction,
+            {
+              opacity: progress.interpolate({
+                inputRange: [0, 80],
+                outputRange: [0, 1],
+              }),
+            },
+          ]}
+        >
+          <Pressable
+            onPress={() => handleDelete(item)}
+            style={styles.deleteButton}
+            hitSlop={16}
+          >
+            <Trash2 color={colors.danger} size={20} />
+          </Pressable>
+        </Animated.View>
+      );
+    };
+
+    return (
+      <Swipeable
+        renderRightActions={renderRightActions}
+        friction={4}
+        overshootFriction={2}
+      >
+        <View style={[styles.item, isActive ? styles.itemActive : null]}>
+          <Pressable onPress={() => handleSelect(item)} style={styles.itemBody}>
+            <Text style={styles.itemTitle} numberOfLines={1}>
+              {item.title || "Untitled session"}
+            </Text>
+            <View style={styles.metaRow}>
+              {item.directory ? (
+                <View style={styles.metaItem}>
+                  <GitBranch color={colors.textMuted} size={10} />
+                  <Text style={styles.metaText} numberOfLines={1}>
+                    {item.directory.split("/").pop() || item.directory}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.metaItem}>
+                <Clock color={colors.textMuted} size={10} />
+                <Text style={styles.metaText}>
+                  {getSessionTimeAgo(item.time.updated, now)}
+                </Text>
+              </View>
+              {totalChanges > 0 ? (
+                <View style={styles.changeBadge}>
+                  <Text style={styles.changeText}>
+                    +{item.summary?.additions ?? 0}/ -
+                    {item.summary?.deletions ?? 0}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.activityRow}>
+              {isRecent ? (
+                <View
+                  style={[
+                    styles.activityDot,
+                    { backgroundColor: colors.success },
+                  ]}
+                />
+              ) : null}
+              <Text style={styles.activityLabel}>
+                Updated {formatSessionDate(item.time.updated)}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      </Swipeable>
+    );
+  };
+
   return (
     <Modal animationType="slide" transparent visible={visible}>
       <Pressable onPress={onClose} style={styles.backdrop}>
@@ -294,8 +476,19 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
             <ActivityIndicator color={colors.accent} />
           ) : (
             <FlatList
-              data={filteredSessions}
-              keyExtractor={(item) => item.id}
+              data={groupedSessions.flatMap((section) => [
+                { type: "header" as const, section },
+                ...section.sessions.map((session) => ({
+                  type: "item" as const,
+                  session,
+                  section,
+                })),
+              ])}
+              keyExtractor={(item, index) =>
+                item.type === "header"
+                  ? `header-${item.section.group}`
+                  : item.session.id
+              }
               refreshControl={
                 <RefreshControl
                   colors={[colors.accent]}
@@ -312,78 +505,12 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
                 </Text>
               }
               renderItem={({ item }) => {
-                const isActive = item.id === sessionId;
-                const totalChanges =
-                  (item.summary?.additions ?? 0) +
-                  (item.summary?.deletions ?? 0);
-                const minutesAgo = (now - item.time.updated) / 60_000;
-                const isRecent = minutesAgo < 5;
-
-                const renderRightActions = (progress: any) => {
-                  return (
-                    <Animated.View
-                      style={[
-                        styles.rightAction,
-                        {
-                          opacity: progress.interpolate({
-                            inputRange: [0, 80],
-                            outputRange: [0, 1],
-                          }),
-                        },
-                      ]}
-                    >
-                      <Pressable
-                        onPress={() => handleDelete(item)}
-                        style={styles.deleteButton}
-                        hitSlop={16}
-                      >
-                        <Trash2 color={colors.danger} size={20} />
-                      </Pressable>
-                    </Animated.View>
-                  );
-                };
-
-                return (
-                  <Swipeable
-                    renderRightActions={renderRightActions}
-                    friction={4}
-                    overshootFriction={2}
-                  >
-                    <View
-                      style={[styles.item, isActive ? styles.itemActive : null]}
-                    >
-                      <Pressable
-                        onPress={() => handleSelect(item)}
-                        style={styles.itemBody}
-                      >
-                        <Text style={styles.itemTitle}>
-                          {item.title || "Untitled session"}
-                        </Text>
-                        <View style={styles.activityRow}>
-                          {isRecent ? (
-                            <View
-                              style={[
-                                styles.activityDot,
-                                { backgroundColor: colors.success },
-                              ]}
-                            />
-                          ) : null}
-                          <Text style={styles.activityLabel}>
-                            {timeAgo(item.time.updated, now)}
-                          </Text>
-                          {totalChanges > 0 ? (
-                            <View style={styles.changeBadge}>
-                              <Text style={styles.changeText}>
-                                +{item.summary?.additions ?? 0}/ -
-                                {item.summary?.deletions ?? 0}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      </Pressable>
-                    </View>
-                  </Swipeable>
-                );
+                if (isHeaderItem(item)) {
+                  return renderSectionHeader({ section: item.section });
+                }
+                const isExpanded = expandedGroups.has(item.section.group);
+                if (!isExpanded) return null;
+                return renderItem({ item: item.session });
               }}
             />
           )}

@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -27,8 +28,10 @@ interface FileDrawerProps {
 export function FileDrawer({ visible, onClose }: FileDrawerProps) {
   const { colors, spacing, typography } = useTheme();
   const { addContextAttachment } = useConnection();
+  const { width: screenWidth } = useWindowDimensions();
   const [currentPath, setCurrentPath] = useState(".");
-  const translateX = useSharedValue(-320);
+  const drawerWidth = Math.min(300, screenWidth * 0.85);
+  const translateX = useSharedValue(-drawerWidth);
   const { data = [], isLoading } = useFileList(currentPath);
 
   const styles = useMemo(
@@ -47,7 +50,6 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
           paddingTop: spacing.lg,
           position: "absolute",
           top: 0,
-          width: 300,
         },
         header: {
           alignItems: "center",
@@ -93,13 +95,16 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
+    width: drawerWidth,
   }));
 
   useEffect(() => {
     // Reanimated shared values are intentionally mutated on the UI thread.
     // eslint-disable-next-line react-hooks/immutability
-    translateX.value = withTiming(visible ? 0 : -320, { duration: 220 });
-  }, [visible, translateX]);
+    translateX.value = withTiming(visible ? 0 : -drawerWidth, {
+      duration: 220,
+    });
+  }, [visible, translateX, drawerWidth]);
 
   const nodes = data as FileNode[];
 
