@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { CollapsiblePartGroup } from "@/components/chat/CollapsiblePartGroup";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { ThinkingPartGroup } from "@/components/chat/ThinkingPartGroup";
@@ -109,12 +109,21 @@ export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
     [colors, spacing, typography],
   );
 
+  const handleLongPress = () => {
+    if (isUser || !text) return;
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      Alert.alert("Copied", "Message copied to clipboard");
+    }
+  };
+
   return (
     <View
       style={[
         styles.bubble,
         isUser ? styles.userBubble : styles.assistantBubble,
       ]}
+      onLongPress={isUser ? undefined : handleLongPress}
     >
       <Text style={styles.role}>{message.info.role}</Text>
       {text ? (

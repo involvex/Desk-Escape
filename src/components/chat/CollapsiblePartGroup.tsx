@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-import { ChevronDown, ChevronRight } from "lucide-react-native";
+import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
 
 export type PartType =
@@ -153,6 +153,9 @@ export const CollapsiblePartGroup = memo(function CollapsiblePartGroupInner({
           fontSize: typography.caption - 2,
           fontWeight: "500",
         },
+        copyButton: {
+          padding: spacing.xs,
+        },
       }),
     [colors, spacing, typography, typeColor],
   );
@@ -165,6 +168,16 @@ export const CollapsiblePartGroup = memo(function CollapsiblePartGroupInner({
         : status === "completed"
           ? styles.statusCompleted
           : null;
+
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    if (body && typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(body);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }, [body]);
 
   return (
     <View
@@ -203,6 +216,19 @@ export const CollapsiblePartGroup = memo(function CollapsiblePartGroupInner({
               isStreaming && { opacity: pulseAnim },
             ]}
           />
+        ) : null}
+        {body ? (
+          <Pressable
+            accessibilityLabel="Copy tool output"
+            onPress={handleCopy}
+            style={styles.copyButton}
+          >
+            {copied ? (
+              <Check color={colors.success} size={14} />
+            ) : (
+              <Copy color={colors.textMuted} size={14} />
+            )}
+          </Pressable>
         ) : null}
       </Pressable>
       {expanded && body ? (

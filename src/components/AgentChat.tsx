@@ -540,6 +540,42 @@ export function AgentChat({
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             value={draft}
+            onPaste={async () => {
+              if (typeof navigator !== "undefined" && navigator.clipboard) {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  if (
+                    text &&
+                    text.length > 50 &&
+                    (text.includes("\n") ||
+                      /^(function|class|const|let|var|import|export|def|async|await)\b/.test(
+                        text.trim(),
+                      ) ||
+                      text.includes("```"))
+                  ) {
+                    Alert.alert(
+                      "Paste as context?",
+                      "Clipboard contains code. Add as context attachment?",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Add",
+                          onPress: () => {
+                            addContextAttachment({
+                              id: `clipboard-${Date.now()}`,
+                              path: "clipboard",
+                              addedAt: new Date().toISOString(),
+                            });
+                          },
+                        },
+                      ],
+                    );
+                  }
+                } catch {
+                  // Ignore clipboard read errors
+                }
+              }
+            }}
           />
           <Pressable
             disabled={isPending}

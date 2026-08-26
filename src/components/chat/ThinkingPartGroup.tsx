@@ -1,6 +1,12 @@
 import { memo, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { ChevronDown, ChevronRight, Brain } from "lucide-react-native";
+import {
+  ChevronDown,
+  ChevronRight,
+  Brain,
+  Copy,
+  Check,
+} from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
 import type { Part } from "@/types/opencode";
 import {
@@ -149,6 +155,9 @@ export const ThinkingPartGroup = memo(function ThinkingPartGroupInner({
           fontSize: typography.caption - 2,
           marginLeft: spacing.xs,
         },
+        copyButton: {
+          padding: spacing.xs,
+        },
       }),
     [colors, spacing, typography],
   );
@@ -161,6 +170,20 @@ export const ThinkingPartGroup = memo(function ThinkingPartGroupInner({
         : status === "completed"
           ? styles.statusCompleted
           : null;
+
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (
+      combinedBody &&
+      typeof navigator !== "undefined" &&
+      navigator.clipboard
+    ) {
+      navigator.clipboard.writeText(combinedBody);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
 
   return (
     <View
@@ -206,6 +229,19 @@ export const ThinkingPartGroup = memo(function ThinkingPartGroupInner({
           </View>
         ) : null}
         {statusStyle ? <View style={[styles.statusDot, statusStyle]} /> : null}
+        {combinedBody ? (
+          <Pressable
+            accessibilityLabel="Copy thinking"
+            onPress={handleCopy}
+            style={styles.copyButton}
+          >
+            {copied ? (
+              <Check color={colors.success} size={14} />
+            ) : (
+              <Copy color={colors.textMuted} size={14} />
+            )}
+          </Pressable>
+        ) : null}
       </Pressable>
       {expanded && combinedBody ? (
         <Text selectable style={styles.body}>
