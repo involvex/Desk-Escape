@@ -1,8 +1,11 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import type { PendingPermission } from "@/api/permissions";
+import type { PendingPermission, PermissionResponse } from "@/api/permissions";
 
 const PERMISSION_CHANNEL_ID = "agent-permissions";
+const PERMISSION_CATEGORY_ID = "permission-request";
+
+export type PermissionAction = "allow" | "reject" | "always-allow";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -13,6 +16,26 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+export async function setupPermissionCategory(): Promise<void> {
+  await Notifications.setNotificationCategoryAsync(PERMISSION_CATEGORY_ID, [
+    {
+      identifier: "allow",
+      buttonTitle: "Allow",
+      options: { isAuthenticationRequired: false },
+    },
+    {
+      identifier: "reject",
+      buttonTitle: "Reject",
+      options: { isDestructive: true, isAuthenticationRequired: false },
+    },
+    {
+      identifier: "always-allow",
+      buttonTitle: "Always Allow",
+      options: { isAuthenticationRequired: false },
+    },
+  ]);
+}
 
 export async function ensureNotificationPermissions(): Promise<boolean> {
   const { status: existing } = await Notifications.getPermissionsAsync();
@@ -32,6 +55,7 @@ export async function setupNotificationChannel(): Promise<void> {
       vibrationPattern: [0, 250, 250, 250],
     });
   }
+  await setupPermissionCategory();
 }
 
 export async function notifyPermissionRequest(
@@ -48,10 +72,23 @@ export async function notifyPermissionRequest(
         permissionId: permission.id,
         sessionId: permission.sessionId,
       },
+      // @ts-expect-error categoryId is supported but not in types
+      categoryId: PERMISSION_CATEGORY_ID,
       ...(Platform.OS === "android"
         ? { channelId: PERMISSION_CHANNEL_ID }
         : {}),
     },
     trigger: null,
   });
+}
+
+export function actionToResponse(action: PermissionAction): PermissionResponse {
+  switch (action) {
+    case "allow":
+      return "once";
+    case "always-allow":
+      return "always";
+    case "reject":
+      return "reject";
+  }
 }

@@ -20,6 +20,8 @@ import { usePreferences } from "@/context/PreferencesContext";
 import {
   ensureNotificationPermissions,
   notifyPermissionRequest,
+  type PermissionAction,
+  actionToResponse,
 } from "@/services/notifications";
 
 interface PermissionContextValue {
@@ -98,6 +100,30 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         };
 
         if (data.type === "permission" && data.permissionId && data.sessionId) {
+          // Handle action buttons (Allow, Reject, Always Allow)
+          const action = response.actionIdentifier as PermissionAction;
+          if (
+            action === "allow" ||
+            action === "reject" ||
+            action === "always-allow"
+          ) {
+            if (client) {
+              respondToPermission(client, {
+                sessionId: data.sessionId,
+                permissionId: data.permissionId,
+                response: actionToResponse(action),
+                directory: activeDirectory,
+              }).catch((error) => {
+                console.error(
+                  "Failed to respond to permission via notification:",
+                  error,
+                );
+              });
+            }
+            return;
+          }
+
+          // Default: app opened without action, show in-app banner
           setPending({
             id: data.permissionId,
             sessionId: data.sessionId,
@@ -111,7 +137,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     );
 
     return () => sub.remove();
-  }, []);
+  }, [activeDirectory, client]);
 
   const respond = useCallback(
     async (response: PermissionResponse) => {
