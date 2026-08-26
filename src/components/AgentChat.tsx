@@ -580,11 +580,7 @@ export function AgentChat({
                         {
                           text: "Add",
                           onPress: () => {
-                            addContextAttachment({
-                              id: `clipboard-${Date.now()}`,
-                              path: "clipboard",
-                              addedAt: new Date().toISOString(),
-                            });
+                            addContextAttachment("clipboard");
                           },
                         },
                       ],
