@@ -101,6 +101,8 @@ export function SettingsScreen({ navigation }: Props) {
     setDefaultAgentKey,
     defaultModel,
     setDefaultModel,
+    hapticsEnabled,
+    setHapticsEnabled,
   } = usePreferences();
   const { lockState, authenticate, setBiometricLockEnabled } =
     useBiometricLockContext();
@@ -576,6 +578,15 @@ export function SettingsScreen({ navigation }: Props) {
                 thumbColor={colors.text}
                 trackColor={{ false: colors.border, true: colors.accentMuted }}
                 value={!collapseToolCalls}
+              />
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>Haptic feedback</Text>
+              <Switch
+                onValueChange={setHapticsEnabled}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={hapticsEnabled}
               />
             </View>
           </View>

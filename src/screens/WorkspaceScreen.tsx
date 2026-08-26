@@ -48,6 +48,7 @@ import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { useConnection } from "@/context/ConnectionContext";
 import { useOrientation } from "@/context/OrientationContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useHaptics } from "@/hooks/useHaptics";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type { WorkspacePanel } from "@/types/opencode";
 
@@ -56,6 +57,7 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Workspace">;
 export function WorkspaceScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, spacing, typography, themeName, setThemeName } = useTheme();
+  const { trigger: haptic } = useHaptics();
   const { isLandscape } = useOrientation();
   const {
     status,
@@ -221,14 +223,18 @@ export function WorkspaceScreen() {
     navigation.replace("Connection");
   }, [disconnect, navigation]);
 
-  const handlePanelChange = useCallback((panel: WorkspacePanel) => {
-    setActivePanel(panel);
-    setFileDrawerOpen(panel === "files");
+  const handlePanelChange = useCallback(
+    (panel: WorkspacePanel) => {
+      setActivePanel(panel);
+      setFileDrawerOpen(panel === "files");
+      haptic("light");
 
-    if (panel === "terminal") {
-      setDiffOpen(false);
-    }
-  }, []);
+      if (panel === "terminal") {
+        setDiffOpen(false);
+      }
+    },
+    [haptic],
+  );
 
   const onPanEnd = useCallback((translationX: number) => {
     if (translationX > 80) {

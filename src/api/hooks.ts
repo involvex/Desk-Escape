@@ -205,7 +205,7 @@ export function useCurrentAgent() {
       if (agentKeys.length === 0) return null;
 
       // Try to get agent from session
-      const sessionResult = await client.session.get({
+      await client.session.get({
         path: { id: sessionId },
         ...withDirectoryQuery(activeDirectory),
       });

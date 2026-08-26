@@ -20,6 +20,7 @@ import {
   useSessionMessageStream,
   useSessionMessages,
 } from "@/api/hooks";
+import { useHaptics } from "@/hooks/useHaptics";
 import { ChatMessageBubble } from "@/components/chat/ChatMessageBubble";
 import {
   ChatScrollControls,
@@ -67,6 +68,7 @@ export function AgentChat({
   const { colors, spacing, typography } = useTheme();
   const { collapseToolCalls, collapseThinking, thinkingDefaultMode } =
     usePreferences();
+  const { trigger: haptic } = useHaptics();
   const {
     sessionId,
     contextAttachments,
@@ -283,9 +285,16 @@ export function AgentChat({
     setScrollMetrics((current) => ({ ...current, offsetY: offset }));
   }, []);
 
+  const getItemLayout = useCallback(
+    (_data: unknown, index: number) => ({
+      length: 200,
+      offset: 200 * index,
+      index,
+    }),
+    [],
+  );
+
   const onScrollToIndexFailed = useCallback((info: { index: number }) => {
-    // Fall back to scrollToOffset when getItemLayout is not available
-    // Use a rough estimate: average ~200px per message
     const estimatedOffset = info.index * 200;
     const maxOffset = Math.max(
       scrollMetricsRef.current.contentHeight -
@@ -349,6 +358,7 @@ export function AgentChat({
 
       setDraft("");
       Keyboard.dismiss();
+      haptic("light");
 
       if (status !== "connected") {
         const attachmentPayload = contextAttachments.map((a) => ({
@@ -379,6 +389,7 @@ export function AgentChat({
       sendPrompt,
       executeCommand,
       setDraft,
+      haptic,
     ],
   );
 
@@ -451,6 +462,7 @@ export function AgentChat({
           data={validMessages}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(item) => item.info.id}
+          getItemLayout={getItemLayout}
           ListEmptyComponent={
             isLoading ? null : (
               <View style={styles.emptyWrap}>

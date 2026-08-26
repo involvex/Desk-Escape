@@ -21,6 +21,7 @@ const THINKING_DEFAULT_MODE_KEY = "@desk-escape/thinking-default-mode";
 const TERMINAL_SHELL_KEY = "@desk-escape/terminal-shell";
 const DEFAULT_AGENT_KEY = "@desk-escape/default-agent";
 const DEFAULT_MODEL_KEY = "@desk-escape/default-model";
+const HAPTICS_ENABLED_KEY = "@desk-escape/haptics-enabled";
 
 export type TerminalShell = "auto" | "pwsh" | "bash" | "zsh" | "fish" | "cmd";
 
@@ -89,6 +90,9 @@ interface PreferencesContextValue {
   setDefaultModel: (
     model: { providerId: string; modelId: string } | null,
   ) => void;
+  // Haptics
+  hapticsEnabled: boolean;
+  setHapticsEnabled: (enabled: boolean) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -122,6 +126,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     providerId: string;
     modelId: string;
   } | null>(null);
+  const [hapticsEnabled, setHapticsEnabledState] = useState(true);
 
   useEffect(() => {
     void (async () => {
@@ -137,6 +142,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         savedShell,
         savedAgent,
         savedModel,
+        savedHaptics,
       ] = await Promise.all([
         AsyncStorage.getItem(AUTO_APPROVE_KEY),
         AsyncStorage.getItem(PROMPT_PRESETS_KEY),
@@ -149,6 +155,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         AsyncStorage.getItem(TERMINAL_SHELL_KEY),
         AsyncStorage.getItem(DEFAULT_AGENT_KEY),
         AsyncStorage.getItem(DEFAULT_MODEL_KEY),
+        AsyncStorage.getItem(HAPTICS_ENABLED_KEY),
       ]);
 
       if (autoApprove === "true") {
@@ -201,6 +208,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         } catch {
           // Ignore invalid model
         }
+      }
+      if (savedHaptics === "false") {
+        setHapticsEnabledState(false);
       }
     })();
   }, []);
@@ -277,6 +287,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const setHapticsEnabled = useCallback((enabled: boolean) => {
+    setHapticsEnabledState(enabled);
+    void AsyncStorage.setItem(HAPTICS_ENABLED_KEY, String(enabled));
+  }, []);
+
   return (
     <PreferencesContext.Provider
       value={{
@@ -302,6 +317,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         setDefaultAgentKey,
         defaultModel,
         setDefaultModel,
+        hapticsEnabled,
+        setHapticsEnabled,
       }}
     >
       {children}

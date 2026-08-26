@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from "react";
 import {
-  FlatList,
   Pressable,
   ActivityIndicator,
   StyleSheet,
@@ -28,7 +27,7 @@ export function AgentPicker({
   onSelectAgent,
 }: AgentPickerProps) {
   const { providerType } = useConnection();
-  const { colors, spacing, typography } = useTheme();
+  const { colors } = useTheme();
   const { data: agents = {}, isLoading } = useAgents();
 
   const agentEntries = useMemo(

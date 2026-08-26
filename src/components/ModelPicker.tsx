@@ -62,7 +62,7 @@ export function ModelPicker({
   onSelectModel,
 }: ModelPickerProps) {
   const { providerType } = useConnection();
-  const { colors, spacing, typography } = useTheme();
+  const { colors } = useTheme();
   const { data: providers = {}, isLoading } = useModels();
   const [searchQuery, setSearchQuery] = useState("");
   const [capabilityFilter, setCapabilityFilter] =

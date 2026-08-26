@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Command, Plus, ChevronDown, Bot, Cpu } from "lucide-react-native";
+import { Command, Plus, ChevronDown, Cpu } from "lucide-react-native";
 import { useSessions, useAgents, useModels } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";

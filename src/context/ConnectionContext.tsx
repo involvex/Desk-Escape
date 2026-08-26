@@ -1,12 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import type {
-  OpencodeClient,
-  Project,
-  Session,
-  Agent,
-  Model,
-} from "@opencode-ai/sdk/client";
+import type { OpencodeClient, Project, Session } from "@opencode-ai/sdk/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -31,6 +25,7 @@ import { withDirectoryQuery } from "@/api/directory";
 import { bestSession } from "@/utils/session-ranking";
 import { useOfflineQueue } from "@/api/use-offline-queue";
 import { useReconnect } from "@/api/use-reconnect";
+import { useHaptics } from "@/hooks/useHaptics";
 import { CursorProvider } from "@/api/providers/cursor/provider";
 import { OpenCodeProvider } from "@/api/providers/opencode/provider";
 import type {
@@ -294,6 +289,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const eventBus = useMemo(() => new EventBus(), []);
   const openCodeProvider = useMemo(() => new OpenCodeProvider(), []);
   const cursorProvider = useMemo(() => new CursorProvider(), []);
+  const { trigger: haptic } = useHaptics();
 
   const sendMessageDirectly = useCallback(
     async (text: string, attachments: QueuedMessage["attachments"]) => {
@@ -432,6 +428,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         setProviderType("opencode");
         setProvider(openCodeProvider);
         setStatus("connected");
+        haptic("success");
         void eventBus.start(nextClient);
         setAuthHeader(
           nextConfig.useAuth && password
@@ -470,13 +467,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         setProviderType(null);
         setProvider(null);
         setStatus("error");
+        haptic("error");
         setErrorMessage(
           error instanceof Error ? error.message : "Connection failed.",
         );
         throw error;
       }
     },
-    [config, eventBus, persistConfig, cursorProvider, openCodeProvider],
+    [config, eventBus, persistConfig, cursorProvider, openCodeProvider, haptic],
   );
 
   const disconnect = useCallback(async () => {
@@ -680,19 +678,25 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
   const handleReconnecting = useCallback(() => {
     setStatus("reconnecting");
-  }, []);
+    haptic("warning");
+  }, [haptic]);
 
   const handleReconnected = useCallback(() => {
     setStatus("connected");
     setReconnectAttempt(0);
     setErrorMessage(null);
-  }, []);
+    haptic("success");
+  }, [haptic]);
 
-  const handleReconnectFailed = useCallback((error: string) => {
-    setStatus("error");
-    setErrorMessage(error);
-    setReconnectAttempt(0);
-  }, []);
+  const handleReconnectFailed = useCallback(
+    (error: string) => {
+      setStatus("error");
+      setErrorMessage(error);
+      setReconnectAttempt(0);
+      haptic("error");
+    },
+    [haptic],
+  );
 
   useReconnect({
     config,

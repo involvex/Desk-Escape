@@ -4,328 +4,257 @@ A curated list of features and improvements that could enhance the Desk Escape m
 
 ---
 
-## 1. Message Search & Filtering
+## ✅ COMPLETED FEATURES
 
-**Priority: High**
+### ✅ #3 — Markdown & Code Block Rendering
 
-Add the ability to search within the current session's chat history. The message list can grow long during extended coding sessions, and scrolling to find a specific response or tool output is tedious.
+**Status: DONE** — Full markdown rendering with `react-native-markdown-display`, syntax-highlighted code blocks, copy button, collapsible blocks, and "Run in terminal" action.
 
-- Full-text search across all messages in the active session
-- Filter by role (user, assistant), tool type, or time range
-- Highlight matching text in results
-- Jump-to-message on tap from search results
+### ✅ #2 — Inline Code Execution & Shell Command Sharing
 
----
+**Status: DONE** — Code blocks have "Run" button that pipes command to active PTY session via `onRunCommand`.
 
-## 2. Inline Code Execution & Shell Command Sharing
+### ✅ #4 — Offline Queue for Prompts
 
-**Priority: High**
+**Status: DONE** — `useOfflineQueue` hook with AsyncStorage persistence, `OfflineQueueIndicator` component, auto-flush on reconnect.
 
-When the agent runs a bash command via the tool system, provide a way to view and re-execute that command directly from the chat bubble — without switching to the terminal tab.
+### ✅ #5 — Biometric App Lock
 
-- Tap-to-copy on bash command output in the chat
-- "Run in terminal" action that pipes the command into the active PTY session
-- Syntax-highlighted code blocks in message rendering
+**Status: DONE** — `expo-local-authentication` integration, configurable in Settings, graceful fallback to device passcode.
 
----
+### ✅ #7 — Session History & Comparison
 
-## 3. Markdown & Code Block Rendering
+**Status: PARTIAL** — Session listing, selection, and read-only view via `SessionPicker`. Side-by-side diff and pinning not yet implemented.
 
-**Priority: High**
+### ✅ #12 — Multi-Server Connection Profiles
 
-Assistant responses contain markdown with fenced code blocks, inline code, lists, and links. Currently these render as raw text. Proper rendering would significantly improve readability.
+**Status: DONE** — Recent hosts stored in AsyncStorage, quick-switch on ConnectionScreen, remembers last session per directory.
 
-- Render markdown in assistant messages (headings, bold, italic, lists)
-- Syntax-highlighted code blocks with language labels
-- Tappable links that open via `expo-web-browser`
-- Copy button on code blocks
-- Collapsible large code blocks (default collapsed)
+### ✅ #15 — Dark Mode System Sync
 
----
+**Status: DONE** — `syncTheme` option follows `Appearance.getColorScheme()`, auto-switches between light/dark variants.
 
-## 4. Offline Queue for Prompts
+### ✅ #19 — Error Recovery & Reconnection Logic
 
-**Priority: Medium**
+**Status: DONE** — `useReconnect` hook with exponential backoff, visual "reconnecting..." indicator, background reconnection on foreground.
 
-When the network connection drops temporarily (common on mobile — switching between Wi-Fi and cellular), user prompts are lost. An offline queue would buffer prompts and send them once connectivity is restored.
+### ✅ #1 — Message Search & Filtering
 
-- Queue prompts in AsyncStorage when the client is disconnected
-- Show a "queued" indicator on buffered messages
-- Auto-send on reconnection with a visible countdown/confirmation
-- Configurable retry limit and timeout
+**Status: DONE** — `MessageSearchBar` with full-text search, role filtering, highlighted snippets, next/prev navigation, jump-to-message.
+
+### ✅ #23 — Performance Optimizations (Partial)
+
+**Status: PARTIAL** — FlatList with scroll optimization, `ChatScrollBar`, virtualized diff view. `getItemLayout` NOT implemented (fallback in `onScrollToIndexFailed`).
 
 ---
 
-## 5. Biometric App Lock
+## HIGH PRIORITY — Quick Wins (1-2 days each)
 
-**Priority: Medium**
+### 🔧 Fix Unused Variable Warnings (30 min)
 
-Desk Escape stores server credentials via `expo-secure-store`. Adding biometric authentication (Face ID / fingerprint) before the app reveals its content adds a meaningful security layer for a tool that has shell access to remote machines.
+**Priority: Critical** — Clean up ESLint warnings before any new work:
 
-- Use `expo-local-authentication` for biometric gate
-- Configurable: always on, on app foreground after 30s idle, or off
-- Graceful fallback to device passcode
-- Store lock preference in SecureStore
+- `src/api/hooks.ts:208` — `sessionResult` assigned but never used in `useCurrentAgent`
+- `src/components/AgentPicker.tsx:3` — `FlatList` imported but unused (using `ScrollView`)
+- `src/components/AgentPicker.tsx:31` — `spacing`, `typography` destructured but unused
+- `src/components/ModelPicker.tsx:65` — `spacing`, `typography` destructured but unused
+- `src/components/WorkspaceToolbar.tsx:3` — `Bot` icon imported but unused
+- `src/context/ConnectionContext.tsx:7-8` — `Agent`, `Model` types imported but unused
 
----
+### 🔧 Implement `getItemLayout` on Message FlatList (1 day)
 
-## 6. Notification Actions for Permission Requests
+**Priority: High** — Eliminate `onScrollToIndexFailed` fallback, enable instant `scrollToIndex` for search results and jump-to-message. Messages have variable height but can estimate ~200px average.
 
-**Priority: Medium**
+### 🔧 Add Haptic Feedback (1 day)
 
-The notification system currently sends alerts for permission requests but the user must open the app to respond. Expo notifications support interactive actions natively.
+**Priority: High** — #9 from original list. Use `expo-haptics` for:
 
-- Add "Allow" and "Reject" as notification actions on the permission notification
-- Handle the response in the notification handler and call `respondToPermission` directly
-- Support "Always allow" as a third action for power users
-- Show updated notification after the action is taken
+- Light tap on message send
+- Medium tap on permission request
+- Success on connection
+- Error on connection failure
+- Optional toggle in Settings
 
----
+### 🔧 Notification Actions for Permission Requests (2 days)
 
-## 7. Session History & Comparison
+**Priority: High** — #6 from original list. Add "Allow"/"Reject" actions to push notifications using Expo's `notification.actions`. Handle response in notification listener to call `respondToPermission` directly.
 
-**Priority: Medium**
+### 🔧 Clipboard Integration Enhancements (1 day)
 
-Allow users to view past sessions (which the API already supports listing) and compare them — useful for seeing how the agent approached the same problem differently.
+**Priority: Medium** — #14 partial. Add:
 
-- Browse a list of all past sessions with title, timestamp, and message count
-- Read-only view of any past session's messages
-- Side-by-side diff view between two sessions (or two messages)
-- Pin/bookmark favorite sessions for quick access
-
----
-
-## 8. Custom Theme Builder
-
-**Priority: Low**
-
-The 7 built-in themes cover a wide range, but allowing users to define their own theme would unlock personalization for users with specific accessibility needs or aesthetic preferences.
-
-- A "Custom" theme slot with a color picker for each semantic color token
-- Import/export theme as JSON
-- Share themes via a deep link or QR code
-- Preview theme changes live before saving
+- "Copy" button on every tool output in chat (not just code blocks)
+- Long-press on assistant message to copy entire response
+- Paste-to-attach: paste code from clipboard → auto-create context attachment
 
 ---
 
-## 9. Haptic Feedback & Sound Design
+## HIGH PRIORITY — Substantial Features (1-2 weeks each)
 
-**Priority: Low**
+### 🔧 Split-View Terminal + Chat on Tablets (1-2 weeks)
 
-Small sensory touches make a mobile app feel polished. The current app is silent and vibration-free.
-
-- Light haptic on message send
-- Medium haptic on permission request received
-- Success haptic on connection established
-- Error haptic on connection failure
-- Optional sound toggle in settings
-
----
-
-## 10. Drag-and-Drop File Context Attachment
-
-**Priority: Low**
-
-The current file attachment flow requires navigating into the file drawer and long-pressing a file. On iPad (and future Android tablet support), drag-and-drop from a floating file list onto the chat input would feel natural.
-
-- Floating draggable file chips that can be dropped onto the composer
-- Drag from the file drawer directly into the chat area
-- Visual drop zone indicator when a file is being dragged over the composer
-
----
-
-## 11. Agent Activity Timeline
-
-**Priority: Medium**
-
-When the agent is actively working on a complex task, the user has limited visibility into what's happening beyond the latest message. A timeline view shows the full sequence of actions at a glance.
-
-- Horizontal timeline bar below the header showing agent steps
-- Each step shows icon (read, edit, bash, think) with status color
-- Tap a step to jump to the corresponding message in the chat
-- Animated pulsing indicator on the currently executing step
-
----
-
-## 12. Multi-Server Connection Profiles
-
-**Priority: Medium**
-
-Users who manage multiple OpenCode servers (e.g., one for work, one for personal projects) currently need to re-enter credentials each time they switch. Saved connection profiles with one-tap switching would streamline this.
-
-- Named connection profiles stored in AsyncStorage
-- Quick-switch dropdown on the connection screen
-- Remember the last-used profile per server
-- Import/export profiles (encrypted if auth is enabled)
-
----
-
-## 13. Split-View Terminal + Chat on Tablets
-
-**Priority: Medium**
-
-On tablets and larger screens (especially in landscape), showing the terminal and chat side-by-side would dramatically improve productivity. The current landscape layout only shows the file rail alongside the agent chat.
+**Priority: High** — #13 from original list. Current landscape only shows file rail. Need:
 
 - Configurable split ratio (50/50, 60/40, 70/30)
 - Draggable divider to resize panes
-- Sync scroll position: when the agent outputs a terminal command, highlight it in both panes
-- Persist split preference across sessions
+- Sync scroll: when agent outputs terminal command, highlight in both panes
+- Persist split preference
+
+### 🔧 Export & Share Session Transcript (1 week)
+
+**Priority: High** — #21 from original list. Export session as Markdown/PDF, native share sheet, include tool outputs and thinking blocks optionally.
+
+### 🔧 Custom Theme Builder (1 week)
+
+**Priority: Medium** — #8 from original list. "Custom" theme slot with color pickers for each semantic token, import/export JSON, live preview.
+
+### 🔧 Agent Activity Timeline (1-2 weeks)
+
+**Priority: Medium** — #11 from original list. Horizontal timeline below header showing agent steps (read/edit/bash/think) with status colors, tap to jump to message, animated pulsing on current step.
+
+### 🔧 Rate Limit & Token Usage Display (1 week)
+
+**Priority: Medium** — #16 from original list. Display estimated token count per session (if SDK exposes), session picker integration, cost estimation, 7/30 day usage graph.
 
 ---
 
-## 14. Clipboard Integration
+## MEDIUM PRIORITY — Nice to Have (2-4 weeks each)
 
-**Priority: Low**
+### 🔧 Drag-and-Drop File Context Attachment (2 weeks)
 
-Mobile development workflows heavily involve copying snippets. Tighter clipboard integration would reduce friction.
+**Priority: Medium** — #10 from original list. Floating draggable file chips, drag from file drawer to composer, visual drop zone indicator. Requires `react-native-drag-and-drop` or similar.
 
-- "Copy" button on every tool output in the chat
-- Long-press on assistant message to copy entire response
-- Paste-to-attach: paste code from clipboard and automatically create a context attachment
-- Clipboard history panel showing recent copies from the session
+### 🔧 App Shortcuts & Deep Links (2 weeks)
 
----
+**Priority: Low** — #20 from original list. iOS Shortcuts/Android App Shortcuts for "New Session", "Last Session", "Run Preset". Deep link scheme: `desk-escape://connect?host=...`. Siri/Google Assistant integration.
 
-## 15. Dark Mode System Sync
+### 🔧 Widget for Quick Prompt (3-4 weeks)
 
-**Priority: Low**
+**Priority: Low** — #17 from original list. Home screen widget: small (status + preset), medium (text input). Uses last connected server. Notification on response.
 
-The app has 7 themes but none of them follow the device's system-wide dark/light mode preference.
+### 🔧 Collaborative Sessions / Multi-User (Long-term)
 
-- Add a "System" theme option that follows `Appearance.getColorScheme()`
-- Automatically switch between the light and dark variant of the current theme
-- Respect the user's system setting without requiring manual toggle
+**Priority: Low** — #22 from original list. Requires OpenCode server support. Live presence, view/send permissions, shared annotations, @mentions.
 
----
+### 🔧 Keyboard Shortcuts (External Keyboard) (1-2 weeks)
 
-## 16. Rate Limit & Token Usage Display
+**Priority: Low** — #24 from original list. `Cmd+K` palette, `Cmd+N` new session, `Cmd+T` terminal, arrow navigation, `Tab` panel cycling. iPad/Bluetooth keyboard focus.
 
-**Priority: Low**
+### 🔧 Onboarding & First-Run Experience (1-2 weeks)
 
-For users who pay per token on their OpenCode provider, understanding usage per session is valuable.
-
-- Display estimated token count per session (if the SDK exposes it)
-- Show token usage in the session picker / session info
-- Cost estimation based on configured provider pricing
-- Usage graph over the last 7/30 days
+**Priority: Medium** — #25 from original list. Guided walkthrough, explain OpenCode/server setup, animated workspace illustrations, "Quick start" to localhost:4096, tips carousel.
 
 ---
 
-## 17. Widget for Quick Prompt (iOS/Android)
+## NEW SUGGESTIONS (Not in original list)
 
-**Priority: Low**
+### 🆕 PTY Session Persistence & Restore
 
-A home screen widget that lets users fire off a quick prompt without opening the full app.
+**Priority: High** — When app backgrounds or reconnects, restore PTY session state (scrollback, cwd, env). Currently TerminalPanel creates new session on each connect.
 
-- Small widget: shows last agent status + one-tap "Run test suite" style preset
-- Medium widget: text input to type a quick prompt
-- Uses the last connected server config
-- Displays a notification when the agent responds
+### 🆕 Agent/Model Selection Persistence Per Session
 
----
+**Priority: High** — Currently `currentAgentKey`/`currentModel` are global. Should persist per-session and restore when switching sessions.
 
-## 18. Accessibility Audit & Improvements
+### 🆕 Session Title Auto-Generation
 
-**Priority: Medium**
+**Priority: Medium** — Auto-generate session title from first user prompt or first assistant response (first 50 chars), editable via long-press.
 
-For an app used by developers (who spend long hours staring at screens), accessibility is important.
+### 🆕 Message Branching / Fork Conversation
 
-- Ensure all interactive elements have proper `accessibilityLabel` and `accessibilityRole`
-- VoiceOver/TalkBack navigation walkthrough
-- Reduce Motion support: respect `prefers-reduced-motion` for animations
-- Dynamic Type support beyond the current 4-step font scale
-- Color-blind friendly theme option (already partially covered by "High Contrast")
+**Priority: Medium** — Long-press a message → "Fork from here" to create new session with context up to that point. Useful for exploring alternatives.
 
----
+### 🆕 Tool Output Diff View Improvements
 
-## 19. Error Recovery & Reconnection Logic
+**Priority: Medium** — UnifiedDiff exists but could add: inline vs side-by-side toggle, syntax highlighting in diff, "Apply" button for patches, ignore whitespace option.
 
-**Priority: High**
+### 🆕 Voice Input for Prompts
 
-The app currently handles disconnections but lacks sophisticated recovery.
+**Priority: Low** — Add microphone button in composer, use `expo-speech` or native speech-to-text for hands-free prompting.
 
-- Auto-reconnect on WebSocket/PTY disconnection with exponential backoff
-- Visual "reconnecting..." indicator with countdown
-- Queue pending prompts during brief disconnections
-- Background reconnection: if the app is backgrounded and the server restarts, reconnect on foreground
-- Connection health ping every 30 seconds
+### 🆕 Scheduled/Auto Prompts
 
----
+**Priority: Low** — "Run every 5 min", "Run on file change" presets. Useful for monitoring tasks.
 
-## 20. App Shortcuts & Deep Links
+### 🆕 Search Across All Sessions
 
-**Priority: Low**
+**Priority: Medium** — Global search across all session messages (not just current), with session filter.
 
-Power users benefit from shortcuts that bypass navigation.
+### 🆕 Plugin/Extension UI in Settings
 
-- iOS Shortcuts / Android App Shortcuts for: "New Session", "Last Session", "Run Preset"
-- Deep link scheme: `desk-escape://connect?host=...` to pre-fill connection screen
-- Siri / Google Assistant integration for "Open Desk Escape and run tests"
+**Priority: Low** — PluginManagerScreen exists but could show: plugin status, enable/disable toggle, config UI for each plugin, install from registry.
 
 ---
 
-## 21. Export & Share Session Transcript
+## TECHNICAL DEBT / MAINTENANCE
 
-**Priority: Medium**
+### 🔧 TypeScript Strict Mode Cleanup
 
-Users may want to share an agent conversation with a colleague or archive it locally.
+**Priority: Medium** — Enable `strict: true` in tsconfig, fix any resulting errors. Currently has some `any` and loose types.
 
-- Export session as Markdown or PDF
-- Share via the native share sheet
-- Include tool outputs and thinking blocks (optionally)
-- Save to Files app (iOS) or Downloads (Android)
+### 🔧 Test Coverage
 
----
+**Priority: Medium** — Add unit tests for hooks (`use-offline-queue`, `use-reconnect`), components (`MarkdownRenderer`, `MessageSearchBar`), and utilities. Use Bun test runner.
 
-## 22. Collaborative Sessions (Multi-User)
+### 🔧 ESLint Flat Config Migration
 
-**Priority: Low (Long-term)**
+**Priority: Low** — Already on ESLint 10 flat config (`eslint.config.mjs`). Ensure all rules are intentional.
 
-If OpenCode supports multi-user sessions, Desk Escape could allow multiple mobile users to view and interact with the same session.
+### 🔧 Expo SDK 57 / RN 0.86 Migration (When Ready)
 
-- Live presence indicators (who's watching)
-- Permission to send prompts or only view
-- Shared annotation/highlighting on messages
-- @mention to delegate tasks to another connected user
+**Priority: Low** — Blocked on Windows MAX_PATH with gesture-handler 3.x. Monitor `expo install --check` and upstream fixes.
+
+### 🔧 Accessibility Audit (WCAG 2.1 AA)
+
+**Priority: Medium** — #18 partial. Full audit: VoiceOver/TalkBack walkthrough, reduce motion, dynamic type beyond 4 steps, color-blind themes (high-contrast exists).
 
 ---
 
-## 23. Performance Optimizations
+## PRIORITY MATRIX
 
-**Priority: High**
-
-As sessions grow, the FlatList of messages can become sluggish. Proactive performance work is warranted.
-
-- Implement `getItemLayout` on the message FlatList for fixed-height optimization
-- Use `React.memo` with careful comparison on `ChatMessageBubble` and sub-components
-- Lazy-load thinking/tool parts that are collapsed (only render when expanded)
-- Virtualize the diff view for large patches
-- Profile and reduce re-renders in `WorkspaceScreen` (currently re-creates styles on every state change)
-
----
-
-## 24. Keyboard Shortcuts (External Keyboard)
-
-**Priority: Low**
-
-On iPad with a keyboard, or Android with a Bluetooth keyboard, keyboard shortcuts would speed up navigation.
-
-- `Cmd+K` / `Ctrl+K` to open command palette
-- `Cmd+N` / `Ctrl+N` to create new session
-- `Cmd+T` / `Ctrl+T` to switch to terminal panel
-- Arrow key navigation in the message list
-- `Tab` to cycle between panels
+| Feature                   | Effort  | Impact              | Priority | Status  |
+| ------------------------- | ------- | ------------------- | -------- | ------- |
+| Fix ESLint warnings       | 30 min  | Code quality        | Critical | 🔴 TODO |
+| getItemLayout on FlatList | 1 day   | Performance         | High     | 🔴 TODO |
+| Haptic Feedback           | 1 day   | Polish/UX           | High     | 🔴 TODO |
+| Notification Actions      | 2 days  | Mobile UX           | High     | 🔴 TODO |
+| Clipboard Enhancements    | 1 day   | Dev productivity    | Medium   | 🔴 TODO |
+| Split-View Terminal+Chat  | 1-2 wks | Tablet productivity | High     | 🔴 TODO |
+| Export/Share Session      | 1 week  | Sharing/Archive     | High     | 🔴 TODO |
+| Custom Theme Builder      | 1 week  | Personalization     | Medium   | 🔴 TODO |
+| Agent Activity Timeline   | 1-2 wks | Visibility          | Medium   | 🔴 TODO |
+| Token Usage Display       | 1 week  | Cost awareness      | Medium   | 🔴 TODO |
+| PTY Session Restore       | 1-2 wks | Reliability         | High     | 🔴 NEW  |
+| Per-Session Agent/Model   | 1 week  | Workflow            | High     | 🔴 NEW  |
+| Session Title Auto-Gen    | 3 days  | UX                  | Medium   | 🔴 NEW  |
+| Message Branching         | 1-2 wks | Exploration         | Medium   | 🔴 NEW  |
+| Global Search             | 1 week  | Discovery           | Medium   | 🔴 NEW  |
 
 ---
 
-## 25. Onboarding & First-Run Experience
+## RECOMMENDED EXECUTION ORDER
 
-**Priority: Medium**
+**Week 1 (Quick Wins):**
 
-The current app drops users onto the connection screen with minimal guidance. A guided onboarding flow would reduce friction for new users.
+1. Fix all ESLint unused variable warnings
+2. Implement `getItemLayout` on message FlatList
+3. Add haptic feedback with Settings toggle
 
-- Step-by-step walkthrough on first launch
-- Explain what OpenCode is and how to set up a server
-- Animated illustrations showing the workspace layout
-- "Quick start" option that auto-connects to `localhost:4096`
-- Tips carousel after first successful connection
+**Week 2:** 4. Notification actions for permissions 5. Clipboard enhancements (copy tool outputs, paste-to-attach)
+
+**Week 3-4 (High Impact):** 6. Split-view Terminal + Chat on tablets 7. PTY session persistence & restore
+
+**Week 5-6:** 8. Export & Share session transcript 9. Per-session agent/model persistence
+
+**Week 7-8:** 10. Custom Theme Builder 11. Agent Activity Timeline
+
+**Ongoing:**
+
+- Accessibility audit
+- Test coverage
+- Technical debt reduction
+
+---
+
+_Last updated: 2026-08-26_
+_Total original suggestions: 25 | Completed: 9 | Partial: 2 | Remaining: 14 | New additions: 9_
