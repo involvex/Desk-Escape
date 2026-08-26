@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text } from "react-native";
 import { CollapsiblePartGroup } from "@/components/chat/CollapsiblePartGroup";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { ThinkingPartGroup } from "@/components/chat/ThinkingPartGroup";
@@ -118,7 +118,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
   };
 
   return (
-    <View
+    <Pressable
       style={[
         styles.bubble,
         isUser ? styles.userBubble : styles.assistantBubble,
@@ -167,7 +167,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
           />
         );
       })}
-    </View>
+    </Pressable>
   );
 }, areEqual);
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   FlatList,
   Keyboard,
   LayoutChangeEvent,
@@ -75,6 +76,7 @@ export function AgentChat({
     clearContextAttachments,
     enqueueMessage,
     status,
+    addContextAttachment,
   } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
 
@@ -182,6 +184,21 @@ export function AgentChat({
           height: 40,
           justifyContent: "center",
           width: 40,
+        },
+        pasteButton: {
+          alignItems: "center",
+          backgroundColor: colors.surfaceElevated,
+          borderColor: colors.border,
+          borderRadius: 999,
+          borderWidth: 1,
+          height: 40,
+          justifyContent: "center",
+          paddingHorizontal: spacing.md,
+        },
+        pasteButtonText: {
+          color: colors.text,
+          fontSize: typography.caption,
+          fontWeight: "600",
         },
         attachments: {
           flexDirection: "row",
@@ -540,7 +557,9 @@ export function AgentChat({
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             value={draft}
-            onPaste={async () => {
+          />
+          <Pressable
+            onPress={async () => {
               if (typeof navigator !== "undefined" && navigator.clipboard) {
                 try {
                   const text = await navigator.clipboard.readText();
@@ -576,7 +595,10 @@ export function AgentChat({
                 }
               }
             }}
-          />
+            style={styles.pasteButton}
+          >
+            <Text style={styles.pasteButtonText}>Paste</Text>
+          </Pressable>
           <Pressable
             disabled={isPending}
             onPress={handleSend}
