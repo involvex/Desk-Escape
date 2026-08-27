@@ -351,6 +351,7 @@ export function WorkspaceScreen() {
   const agentChat = (
     <AgentChat
       chromeInset={chromeInset}
+      insets={insets}
       onCreateSession={() => void createSession()}
       onOpenPalette={() => setPaletteOpen(true)}
       onSlashDraftChange={setSlashDraft}

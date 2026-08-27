@@ -6,6 +6,7 @@ import {
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -41,6 +42,7 @@ import type { MessageWithParts } from "@/types/opencode";
 
 interface AgentChatProps {
   chromeInset?: number;
+  insets?: { bottom: number };
   onOpenPalette?: () => void;
   onCreateSession?: () => void;
   slashDraft?: string;
@@ -58,6 +60,7 @@ const INITIAL_SCROLL_METRICS: ChatScrollMetrics = {
 
 export function AgentChat({
   chromeInset = 0,
+  insets,
   onOpenPalette,
   onCreateSession,
   slashDraft,
@@ -259,13 +262,17 @@ export function AgentChat({
     return offsetY + layoutHeight >= contentHeight - SCROLL_EDGE_THRESHOLD;
   }, []);
 
-  const scrollToEndIfNearBottom = useCallback(() => {
-    if (isNearBottom(scrollMetricsRef.current)) {
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToEnd({ animated: true });
-      });
-    }
-  }, [isNearBottom]);
+  const scrollToEndIfNearBottom = useCallback(
+    (metrics?: ChatScrollMetrics) => {
+      const m = metrics ?? scrollMetricsRef.current;
+      if (isNearBottom(m)) {
+        requestAnimationFrame(() => {
+          listRef.current?.scrollToEnd({ animated: true });
+        });
+      }
+    },
+    [isNearBottom],
+  );
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -282,10 +289,21 @@ export function AgentChat({
 
   const handleContentSizeChange = useCallback(
     (_width: number, height: number) => {
-      const next = { ...scrollMetricsRef.current, contentHeight: height };
+      const next = {
+        contentHeight: height,
+        layoutHeight: scrollMetricsRef.current.layoutHeight,
+        offsetY: scrollMetricsRef.current.offsetY,
+      };
       scrollMetricsRef.current = next;
+      console.log(
+        `[ScrollDebug] contentSize ${scrollMetricsRef.current.contentHeight.toFixed(
+          1,
+        )} -> ${height.toFixed(1)}   layoutHeight=${next.layoutHeight.toFixed(
+          1,
+        )}   offsetY=${next.offsetY.toFixed(1)}`,
+      );
       setScrollMetrics(next);
-      scrollToEndIfNearBottom();
+      scrollToEndIfNearBottom(next);
     },
     [scrollToEndIfNearBottom],
   );
@@ -302,37 +320,16 @@ export function AgentChat({
     setScrollMetrics((current) => ({ ...current, offsetY: offset }));
   }, []);
 
-  const getItemLayout = useCallback(
-    (_data: unknown, index: number) => ({
-      length: 200,
-      offset: 200 * index,
-      index,
-    }),
-    [],
-  );
-
-  const onScrollToIndexFailed = useCallback((info: { index: number }) => {
-    const estimatedOffset = info.index * 200;
-    const maxOffset = Math.max(
-      scrollMetricsRef.current.contentHeight -
-        scrollMetricsRef.current.layoutHeight,
-      0,
-    );
-    listRef.current?.scrollToOffset({
-      offset: Math.min(estimatedOffset, maxOffset),
-      animated: true,
-    });
-  }, []);
-
   const scrollToTop = useCallback(() => {
-    listRef.current?.scrollToOffset({ offset: 0, animated: true });
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
     listRef.current?.scrollToEnd({ animated: true });
   }, []);
 
+  const scrollToBottom = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
   const handleToggleCollapseMode = useCallback(() => {
+    console.log(`[ScrollDebug] toggle collapse mode: ${sessionCollapseMode}`);
     setSessionCollapseMode((mode) => {
       if (mode === "default") {
         return "collapsed";
@@ -342,7 +339,7 @@ export function AgentChat({
       }
       return "default";
     });
-  }, []);
+  }, [sessionCollapseMode]);
 
   useEffect(() => {
     if (!lastMessageId || !listRef.current) {
@@ -454,11 +451,7 @@ export function AgentChat({
   const isPending = sendPrompt.isPending || executeCommand.isPending;
 
   return (
-    <KeyboardAvoidingView
-      behavior="padding"
-      keyboardVerticalOffset={chromeInset}
-      style={styles.container}
-    >
+    <View style={styles.container}>
       {contextAttachments.length > 0 ? (
         <View style={styles.attachments}>
           {contextAttachments.map((attachment) => (
@@ -477,9 +470,9 @@ export function AgentChat({
             isEmpty ? styles.listContentEmpty : null,
           ]}
           data={validMessages}
+          inverted
           keyboardShouldPersistTaps="handled"
           keyExtractor={(item) => item.info.id}
-          getItemLayout={getItemLayout}
           ListEmptyComponent={
             isLoading ? null : (
               <View style={styles.emptyWrap}>
@@ -521,7 +514,6 @@ export function AgentChat({
           onContentSizeChange={handleContentSizeChange}
           onLayout={handleListLayout}
           onScroll={handleScroll}
-          onScrollToIndexFailed={onScrollToIndexFailed}
           renderItem={renderItem}
           scrollEventThrottle={16}
           style={styles.list}
@@ -540,7 +532,13 @@ export function AgentChat({
         />
       </View>
 
-      <View style={styles.composerWrap}>
+      <KeyboardAvoidingView
+        keyboardVerticalOffset={
+          Platform.OS === "ios" ? 0 : (insets?.bottom ?? 0)
+        }
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.composerWrap}
+      >
         <SlashCommandMenu
           commands={commands}
           onSelect={handleSlashSelect}
@@ -562,30 +560,36 @@ export function AgentChat({
             onPress={async () => {
               if (typeof navigator !== "undefined" && navigator.clipboard) {
                 try {
-                  const text = await navigator.clipboard.readText();
+                  const raw = await navigator.clipboard.readText();
+                  if (!raw) return;
+                  const trimmed = raw.trim();
                   if (
-                    text &&
-                    text.length > 50 &&
-                    (text.includes("\n") ||
-                      /^(function|class|const|let|var|import|export|def|async|await)\b/.test(
-                        text.trim(),
-                      ) ||
-                      text.includes("```"))
+                    trimmed.length <= 50 &&
+                    !trimmed.includes("\n") &&
+                    !trimmed.includes("```")
                   ) {
-                    Alert.alert(
-                      "Paste as context?",
-                      "Clipboard contains code. Add as context attachment?",
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Add",
-                          onPress: () => {
-                            addContextAttachment("clipboard");
-                          },
-                        },
-                      ],
-                    );
+                    return;
                   }
+                  const looksLikeCode =
+                    /^(function|class|const|let|var|import|export|def|async|await)\b/.test(
+                      trimmed,
+                    ) ||
+                    trimmed.includes("\n") ||
+                    trimmed.includes("```");
+                  if (!looksLikeCode) return;
+                  Alert.alert(
+                    "Paste as context?",
+                    "Clipboard contains code. Add as context attachment?",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Add",
+                        onPress: () => {
+                          addContextAttachment("clipboard");
+                        },
+                      },
+                    ],
+                  );
                 } catch {
                   // Ignore clipboard read errors
                 }
@@ -607,7 +611,7 @@ export function AgentChat({
             )}
           </Pressable>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }

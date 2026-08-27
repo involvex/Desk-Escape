@@ -753,7 +753,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       return [
         ...current,
         {
-          id: `${path}-${Date.now()}`,
+          id: `${path}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           path,
           addedAt: new Date().toISOString(),
         },
