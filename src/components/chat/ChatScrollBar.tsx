@@ -23,7 +23,6 @@ import type { MessageWithParts } from "@/types/opencode";
 
 const MIN_THUMB_HEIGHT = 32;
 const FADE_DELAY_MS = 1500;
-const SCROLL_DEBUG_TAG = "[ScrollDebug]";
 
 interface ChatScrollBarProps {
   listRef: React.RefObject<FlatList<MessageWithParts> | null>;
@@ -57,18 +56,6 @@ export function ChatScrollBar({
   useEffect(() => {
     metricsRef.current = scrollMetrics;
   }, [scrollMetrics]);
-
-  useEffect(() => {
-    console.log(
-      `${SCROLL_DEBUG_TAG} metrics update: offsetY=${offsetY.toFixed(
-        1,
-      )} thumbTop=${thumbTop.toFixed(1)} maxScroll=${maxScroll.toFixed(
-        1,
-      )} layoutHeight=${layoutHeight.toFixed(1)} contentHeight=${contentHeight.toFixed(
-        1,
-      )}`,
-    );
-  }, [contentHeight, layoutHeight, maxScroll, offsetY, thumbTop]);
 
   const revealBar = useCallback(() => {
     // Reanimated shared values are intentionally mutated on the UI thread.

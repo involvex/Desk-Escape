@@ -295,13 +295,6 @@ export function AgentChat({
         offsetY: scrollMetricsRef.current.offsetY,
       };
       scrollMetricsRef.current = next;
-      console.log(
-        `[ScrollDebug] contentSize ${scrollMetricsRef.current.contentHeight.toFixed(
-          1,
-        )} -> ${height.toFixed(1)}   layoutHeight=${next.layoutHeight.toFixed(
-          1,
-        )}   offsetY=${next.offsetY.toFixed(1)}`,
-      );
       setScrollMetrics(next);
       scrollToEndIfNearBottom(next);
     },
@@ -329,7 +322,6 @@ export function AgentChat({
   }, []);
 
   const handleToggleCollapseMode = useCallback(() => {
-    console.log(`[ScrollDebug] toggle collapse mode: ${sessionCollapseMode}`);
     setSessionCollapseMode((mode) => {
       if (mode === "default") {
         return "collapsed";
@@ -339,7 +331,7 @@ export function AgentChat({
       }
       return "default";
     });
-  }, [sessionCollapseMode]);
+  }, []);
 
   useEffect(() => {
     if (!lastMessageId || !listRef.current) {
