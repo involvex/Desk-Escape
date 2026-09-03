@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type {
   Agent,
+  AgentConfig,
   AssistantMessage,
   Command,
   Config,
   EventSubscribeResponse,
   Model,
   Provider,
+  ProviderConfig,
   Session,
 } from "@opencode-ai/sdk/client";
 import {
@@ -38,6 +40,110 @@ export const agentsKey = (directory?: string | null) =>
 
 export const modelsKey = (directory?: string | null) =>
   ["models", directory ?? "default"] as const;
+
+type ConfigModel = NonNullable<NonNullable<ProviderConfig["models"]>[string]>;
+
+function transformConfigModel(
+  modelId: string,
+  config: ConfigModel,
+  providerId: string,
+): Model {
+  const modalities = config.modalities ?? {
+    input: ["text" as const],
+    output: ["text" as const],
+  };
+  const inputModalities = modalities.input ?? [];
+  const outputModalities = modalities.output ?? [];
+
+  return {
+    id: config.id ?? modelId,
+    providerID: providerId,
+    api: {
+      id: config.id ?? modelId,
+      url: "",
+      npm: config.provider?.npm ?? "",
+    },
+    name: config.name ?? modelId,
+    capabilities: {
+      temperature: config.temperature ?? false,
+      reasoning: config.reasoning ?? false,
+      attachment: config.attachment ?? false,
+      toolcall: config.tool_call ?? false,
+      input: {
+        text: inputModalities.includes("text"),
+        audio: inputModalities.includes("audio"),
+        image: inputModalities.includes("image"),
+        video: inputModalities.includes("video"),
+        pdf: inputModalities.includes("pdf"),
+      },
+      output: {
+        text: outputModalities.includes("text"),
+        audio: outputModalities.includes("audio"),
+        image: outputModalities.includes("image"),
+        video: outputModalities.includes("video"),
+        pdf: outputModalities.includes("pdf"),
+      },
+    },
+    cost: config.cost
+      ? {
+          input: config.cost.input,
+          output: config.cost.output,
+          cache: {
+            read: config.cost.cache_read ?? 0,
+            write: config.cost.cache_write ?? 0,
+          },
+          ...(config.cost.context_over_200k
+            ? {
+                experimentalOver200K: {
+                  input: config.cost.context_over_200k.input,
+                  output: config.cost.context_over_200k.output,
+                  cache: {
+                    read: config.cost.context_over_200k.cache_read ?? 0,
+                    write: config.cost.context_over_200k.cache_write ?? 0,
+                  },
+                },
+              }
+            : {}),
+        }
+      : {
+          input: 0,
+          output: 0,
+          cache: { read: 0, write: 0 },
+        },
+    limit: config.limit ?? { context: 0, output: 0 },
+    status: config.status ?? "active",
+    options: config.options ?? {},
+    headers: config.headers ?? {},
+  };
+}
+
+function transformAgentConfig(key: string, config: AgentConfig): Agent {
+  const modelStr = config.model;
+  let parsedModel: { providerID: string; modelID: string } | undefined;
+  if (typeof modelStr === "string" && modelStr.includes("/")) {
+    const parts = modelStr.split("/");
+    const providerID = parts[0]!;
+    const modelID = parts[1]!;
+    if (providerID && modelID) {
+      parsedModel = { providerID, modelID };
+    }
+  }
+
+  return {
+    name: config.name ?? key,
+    description: config.description,
+    mode: config.mode ?? "primary",
+    builtIn: false,
+    topP: config.top_p,
+    temperature: config.temperature,
+    color: config.color,
+    model: parsedModel,
+    prompt: config.prompt,
+    tools: config.tools ?? {},
+    options: {},
+    maxSteps: config.maxSteps,
+  } as Agent;
+}
 
 async function fetchSessionMessages(
   client: NonNullable<ReturnType<typeof useConnection>["client"]>,
@@ -140,11 +246,10 @@ export function useAgents() {
         withDirectoryQuery(activeDirectory),
       );
       const agentConfig = result.data?.agent ?? {};
-      // Convert AgentConfig to Agent (filter out undefined)
       const agents: Record<string, Agent> = {};
       for (const [key, value] of Object.entries(agentConfig)) {
         if (value) {
-          agents[key] = value as Agent;
+          agents[key] = transformAgentConfig(key, value);
         }
       }
       return agents;
@@ -167,17 +272,21 @@ export function useModels() {
         withDirectoryQuery(activeDirectory),
       );
       const providerConfig = result.data?.provider ?? {};
-      // Convert ProviderConfig to Provider (filter out undefined)
       const providers: Record<string, Provider> = {};
       for (const [key, value] of Object.entries(providerConfig)) {
         if (value && value.models) {
+          const models: Record<string, Model> = {};
+          for (const [modelId, modelConfig] of Object.entries(value.models)) {
+            if (!modelConfig) continue;
+            models[modelId] = transformConfigModel(modelId, modelConfig, key);
+          }
           providers[key] = {
             id: key,
             name: value.name ?? key,
             source: "config",
             env: value.env ?? [],
             options: value.options ?? {},
-            models: value.models as Record<string, Model>,
+            models,
           };
         }
       }
@@ -213,7 +322,10 @@ export function useCurrentAgent() {
       // For now, return the first agent as default
       // In the future, we could track which agent was used in the session
       const firstAgentKey = agentKeys[0];
-      return firstAgentKey ? (agents[firstAgentKey] as Agent) : null;
+      if (!firstAgentKey) return null;
+      const firstAgentConfig = agents[firstAgentKey];
+      if (!firstAgentConfig) return null;
+      return transformAgentConfig(firstAgentKey, firstAgentConfig);
     },
     staleTime: 30_000,
   });
@@ -249,8 +361,12 @@ export function useCurrentModel() {
         const modelId = lastAssistant.info.modelID;
         const providerId = lastAssistant.info.providerID;
         const provider = providers[providerId];
-        if (provider && provider.models && provider.models[modelId]) {
-          return { providerId, model: provider.models[modelId] as Model };
+        const modelConfig = provider?.models?.[modelId];
+        if (modelConfig) {
+          return {
+            providerId,
+            model: transformConfigModel(modelId, modelConfig, providerId),
+          };
         }
       }
 
@@ -262,8 +378,12 @@ export function useCurrentModel() {
         const modelId = parts[1];
         if (providerId && modelId) {
           const provider = providers[providerId];
-          if (provider && provider.models && provider.models[modelId]) {
-            return { providerId, model: provider.models[modelId] as Model };
+          const modelConfig = provider?.models?.[modelId];
+          if (modelConfig) {
+            return {
+              providerId,
+              model: transformConfigModel(modelId, modelConfig, providerId),
+            };
           }
         }
       }
