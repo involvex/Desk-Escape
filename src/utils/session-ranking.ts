@@ -39,6 +39,26 @@ export function rankSessions(sessions: Session[]): Session[] {
 }
 
 /**
+ * Rank sessions with pinned IDs forced to the top (preserving pin order),
+ * then relevance among the rest.
+ */
+export function rankSessionsWithPins(
+  sessions: Session[],
+  pinnedIds: string[],
+): Session[] {
+  const ranked = rankSessions(sessions);
+  if (pinnedIds.length === 0) {
+    return ranked;
+  }
+  const pinnedSet = new Set(pinnedIds);
+  const pinned = pinnedIds
+    .map((id) => ranked.find((session) => session.id === id))
+    .filter((session): session is Session => Boolean(session));
+  const rest = ranked.filter((session) => !pinnedSet.has(session.id));
+  return [...pinned, ...rest];
+}
+
+/**
  * Find the single best session from a list.
  * Returns null if the list is empty.
  */

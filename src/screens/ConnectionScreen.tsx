@@ -29,6 +29,7 @@ import {
   saveConnectionDraft,
   useConnection,
 } from "@/context/ConnectionContext";
+import { usePreferences } from "@/context/PreferencesContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type { ConnectionDraft, TestConnectionStatus } from "@/types/opencode";
@@ -39,6 +40,7 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Connection">;
 export function ConnectionScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, spacing, typography } = useTheme();
+  const { showCursorAgents } = usePreferences();
   const {
     connect,
     testServerConnection,
@@ -379,6 +381,16 @@ export function ConnectionScreen() {
       <Text style={styles.subtitle}>
         Connect to your OpenCode host over Tailscale or myfritz.link.
       </Text>
+      {showCursorAgents ? (
+        <Pressable
+          onPress={() => navigation.navigate("ProviderPicker")}
+          style={{ marginBottom: spacing.md }}
+        >
+          <Text style={{ color: colors.accent, fontSize: typography.caption }}>
+            ← Choose agent backend
+          </Text>
+        </Pressable>
+      ) : null}
 
       <Text style={styles.label}>OpenCode backend address</Text>
       <TextInput

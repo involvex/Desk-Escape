@@ -1,4 +1,7 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { ActivityIndicator, View } from "react-native";
+import { usePreferences } from "@/context/PreferencesContext";
+import { useTheme } from "@/context/ThemeContext";
 import { ConnectionScreen } from "@/screens/ConnectionScreen";
 import { CursorConnectionScreen } from "@/screens/CursorConnectionScreen";
 import { CursorSessionScreen } from "@/screens/CursorSessionScreen";
@@ -20,9 +23,27 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
+  const { showCursorAgents, preferencesReady } = usePreferences();
+  const { colors } = useTheme();
+
+  if (!preferencesReady) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.background,
+        }}
+      >
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
   return (
     <Stack.Navigator
-      initialRouteName="ProviderPicker"
+      initialRouteName={showCursorAgents ? "ProviderPicker" : "Connection"}
       screenOptions={{
         headerShown: false,
         animation: "fade",

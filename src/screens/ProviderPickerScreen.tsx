@@ -1,8 +1,9 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Settings } from "lucide-react-native";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { usePreferences } from "@/context/PreferencesContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 
@@ -14,6 +15,14 @@ type Navigation = NativeStackNavigationProp<
 export function ProviderPickerScreen() {
   const navigation = useNavigation<Navigation>();
   const { colors, spacing, typography } = useTheme();
+  const { showCursorAgents, preferencesReady } = usePreferences();
+
+  useEffect(() => {
+    if (!preferencesReady || showCursorAgents) {
+      return;
+    }
+    navigation.replace("Connection");
+  }, [navigation, preferencesReady, showCursorAgents]);
 
   const handleOpenCode = useCallback(() => {
     navigation.navigate("Connection");
@@ -88,6 +97,10 @@ export function ProviderPickerScreen() {
       }),
     [colors, spacing, typography],
   );
+
+  if (!preferencesReady || !showCursorAgents) {
+    return <View style={styles.container} />;
+  }
 
   return (
     <View style={styles.container}>

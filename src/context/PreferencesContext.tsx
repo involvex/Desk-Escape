@@ -22,6 +22,7 @@ const TERMINAL_SHELL_KEY = "@desk-escape/terminal-shell";
 const DEFAULT_AGENT_KEY = "@desk-escape/default-agent";
 const DEFAULT_MODEL_KEY = "@desk-escape/default-model";
 const HAPTICS_ENABLED_KEY = "@desk-escape/haptics-enabled";
+const SHOW_CURSOR_AGENTS_KEY = "@desk-escape/show-cursor-agents";
 
 export type TerminalShell = "auto" | "pwsh" | "bash" | "zsh" | "fish" | "cmd";
 
@@ -93,6 +94,10 @@ interface PreferencesContextValue {
   // Haptics
   hapticsEnabled: boolean;
   setHapticsEnabled: (enabled: boolean) => void;
+  // Providers
+  showCursorAgents: boolean;
+  setShowCursorAgents: (enabled: boolean) => void;
+  preferencesReady: boolean;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -127,6 +132,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     modelId: string;
   } | null>(null);
   const [hapticsEnabled, setHapticsEnabledState] = useState(true);
+  const [showCursorAgents, setShowCursorAgentsState] = useState(false);
+  const [preferencesReady, setPreferencesReady] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -143,6 +150,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         savedAgent,
         savedModel,
         savedHaptics,
+        savedShowCursor,
       ] = await Promise.all([
         AsyncStorage.getItem(AUTO_APPROVE_KEY),
         AsyncStorage.getItem(PROMPT_PRESETS_KEY),
@@ -156,6 +164,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         AsyncStorage.getItem(DEFAULT_AGENT_KEY),
         AsyncStorage.getItem(DEFAULT_MODEL_KEY),
         AsyncStorage.getItem(HAPTICS_ENABLED_KEY),
+        AsyncStorage.getItem(SHOW_CURSOR_AGENTS_KEY),
       ]);
 
       if (autoApprove === "true") {
@@ -212,6 +221,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if (savedHaptics === "false") {
         setHapticsEnabledState(false);
       }
+      if (savedShowCursor === "true") {
+        setShowCursorAgentsState(true);
+      }
+      setPreferencesReady(true);
     })();
   }, []);
 
@@ -292,6 +305,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.setItem(HAPTICS_ENABLED_KEY, String(enabled));
   }, []);
 
+  const setShowCursorAgents = useCallback((enabled: boolean) => {
+    setShowCursorAgentsState(enabled);
+    void AsyncStorage.setItem(SHOW_CURSOR_AGENTS_KEY, String(enabled));
+  }, []);
+
   return (
     <PreferencesContext.Provider
       value={{
@@ -319,6 +337,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         setDefaultModel,
         hapticsEnabled,
         setHapticsEnabled,
+        showCursorAgents,
+        setShowCursorAgents,
+        preferencesReady,
       }}
     >
       {children}

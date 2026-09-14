@@ -9,6 +9,8 @@ import { ConnectionProvider } from "@/context/ConnectionContext";
 import { OrientationProvider } from "@/context/OrientationContext";
 import { PermissionProvider } from "@/context/PermissionContext";
 import { PreferencesProvider } from "@/context/PreferencesContext";
+import { QuestionProvider } from "@/context/QuestionContext";
+import { SessionMetaProvider } from "@/context/SessionMetaContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { RootNavigator } from "@/navigation/RootNavigator";
 
@@ -35,15 +37,19 @@ export default function App() {
           <QueryClientProvider client={queryClient}>
             <ThemeProvider>
               <PreferencesProvider>
-                <OrientationProvider>
-                  <ConnectionProvider>
-                    <BiometricLockProvider>
-                      <PermissionProvider>
-                        <AppShell />
-                      </PermissionProvider>
-                    </BiometricLockProvider>
-                  </ConnectionProvider>
-                </OrientationProvider>
+                <SessionMetaProvider>
+                  <OrientationProvider>
+                    <ConnectionProvider>
+                      <BiometricLockProvider>
+                        <PermissionProvider>
+                          <QuestionProvider>
+                            <AppShell />
+                          </QuestionProvider>
+                        </PermissionProvider>
+                      </BiometricLockProvider>
+                    </ConnectionProvider>
+                  </OrientationProvider>
+                </SessionMetaProvider>
               </PreferencesProvider>
             </ThemeProvider>
           </QueryClientProvider>

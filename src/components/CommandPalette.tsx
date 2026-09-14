@@ -13,8 +13,11 @@ import { Search, X } from "lucide-react-native";
 import { getWorktreeName } from "@/api/client";
 import { useCommands, useProjects, useSessions } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
+import { useSessionMeta } from "@/context/SessionMetaContext";
 import { useTheme } from "@/context/ThemeContext";
 import type { ThemeName } from "@/types/opencode";
+import { partitionArchived } from "@/utils/session-meta";
+import { rankSessionsWithPins } from "@/utils/session-ranking";
 
 function timeAgo(timestamp: number, now: number): string {
   const seconds = Math.floor((now - timestamp) / 1000);
@@ -54,11 +57,17 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const { colors, spacing, typography } = useTheme();
   const { sessionId } = useConnection();
+  const { pinnedIds, archivedIds } = useSessionMeta();
   const { data: sessions = [] } = useSessions();
   const { data: projects = [] } = useProjects();
   const { data: commands = [] } = useCommands();
   const [query, setQuery] = useState("");
   const [now] = useState(() => Date.now());
+
+  const rankedSessions = useMemo(() => {
+    const { active } = partitionArchived(sessions, archivedIds);
+    return rankSessionsWithPins(active, pinnedIds);
+  }, [sessions, archivedIds, pinnedIds]);
 
   const appActions: PaletteAction[] = useMemo(
     () => [
@@ -74,7 +83,7 @@ export function CommandPalette({
   const items = useMemo(() => {
     const result: PaletteAction[] = [];
 
-    for (const session of sessions) {
+    for (const session of rankedSessions) {
       const label = session.title || "Untitled session";
       if (matchesQuery(label, query) || matchesQuery(session.id, query)) {
         result.push({ type: "session", session });
@@ -105,7 +114,7 @@ export function CommandPalette({
     }
 
     return result;
-  }, [appActions, commands, projects, query, sessions]);
+  }, [appActions, commands, projects, query, rankedSessions]);
 
   const styles = useMemo(
     () =>

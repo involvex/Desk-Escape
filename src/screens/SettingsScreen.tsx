@@ -27,6 +27,7 @@ import {
   TERMINAL_SHELL_OPTIONS,
   usePreferences,
 } from "@/context/PreferencesContext";
+import { useSessionMeta } from "@/context/SessionMetaContext";
 import { themeDefinitions, useTheme } from "@/context/ThemeContext";
 import { ensureNotificationPermissions } from "@/services/notifications";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
@@ -103,6 +104,8 @@ export function SettingsScreen({ navigation }: Props) {
     setDefaultModel,
     hapticsEnabled,
     setHapticsEnabled,
+    showCursorAgents,
+    setShowCursorAgents,
   } = usePreferences();
   const { lockState, authenticate, setBiometricLockEnabled } =
     useBiometricLockContext();
@@ -113,7 +116,10 @@ export function SettingsScreen({ navigation }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [newPresetLabel, setNewPresetLabel] = useState("");
   const [newPresetText, setNewPresetText] = useState("");
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [newTemplatePrompt, setNewTemplatePrompt] = useState("");
   const [hasBiometricHardware, setHasBiometricHardware] = useState(false);
+  const { templates, addTemplate, deleteTemplate } = useSessionMeta();
 
   useEffect(() => {
     void LocalAuthentication.hasHardwareAsync().then(setHasBiometricHardware);
@@ -380,6 +386,18 @@ export function SettingsScreen({ navigation }: Props) {
     setPromptPresets(DEFAULT_PROMPT_PRESETS);
   };
 
+  const handleAddTemplate = () => {
+    const name = newTemplateName.trim();
+    const prompt = newTemplatePrompt.trim();
+    if (!name || !prompt) {
+      return;
+    }
+    void addTemplate({ name, prompt }).then(() => {
+      setNewTemplateName("");
+      setNewTemplatePrompt("");
+    });
+  };
+
   const handleNotificationPermission = () => {
     void ensureNotificationPermissions();
   };
@@ -570,6 +588,25 @@ export function SettingsScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Providers</Text>
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>
+                Show Cursor Agents in main menu
+              </Text>
+              <Switch
+                onValueChange={setShowCursorAgents}
+                thumbColor={colors.text}
+                trackColor={{ false: colors.border, true: colors.accentMuted }}
+                value={showCursorAgents}
+              />
+            </View>
+            <Text style={styles.meta}>
+              Off by default — Desk Escape focuses on OpenCode. Enable to pick
+              Cursor Cloud Agents from the start screen.
+            </Text>
+          </View>
+
+          <View style={styles.section}>
             <Text style={styles.sectionTitle}>Agent chat</Text>
             <View style={styles.row}>
               <Text style={styles.rowLabel}>Expand tool calls by default</Text>
@@ -735,6 +772,45 @@ export function SettingsScreen({ navigation }: Props) {
             />
             <Pressable onPress={handleAddPreset} style={styles.saveButton}>
               <Text style={styles.saveText}>Add preset</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Session templates</Text>
+            <Text style={styles.meta}>
+              Create a new session pre-filled with a prompt. Optional agent and
+              model can be set from the workspace pickers as defaults.
+            </Text>
+            {templates.map((template) => (
+              <View key={template.id} style={styles.presetItem}>
+                <View style={styles.presetBody}>
+                  <Text style={styles.presetLabel}>{template.name}</Text>
+                  <Text numberOfLines={2} style={styles.presetText}>
+                    {template.prompt}
+                  </Text>
+                </View>
+                <Pressable onPress={() => void deleteTemplate(template.id)}>
+                  <Trash2 color={colors.danger} size={18} />
+                </Pressable>
+              </View>
+            ))}
+            <TextInput
+              onChangeText={setNewTemplateName}
+              placeholder="Template name"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              value={newTemplateName}
+            />
+            <TextInput
+              multiline
+              onChangeText={setNewTemplatePrompt}
+              placeholder="Template prompt text"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              value={newTemplatePrompt}
+            />
+            <Pressable onPress={handleAddTemplate} style={styles.saveButton}>
+              <Text style={styles.saveText}>Add template</Text>
             </Pressable>
           </View>
 

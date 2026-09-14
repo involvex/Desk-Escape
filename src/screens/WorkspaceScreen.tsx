@@ -23,6 +23,7 @@ import {
   Plus,
   Search,
   Settings,
+  Share2,
 } from "lucide-react-native";
 import { getWorktreeName } from "@/api/client";
 import { useCurrentProject, useSessionMessages } from "@/api/hooks";
@@ -40,6 +41,7 @@ import { LandscapeFileRail } from "@/components/LandscapeFileRail";
 import { BottomNavigation } from "@/components/BottomNavigation";
 import { OfflineQueueIndicator } from "@/components/OfflineQueueIndicator";
 import { PermissionBanner } from "@/components/PermissionBanner";
+import { QuestionBanner } from "@/components/QuestionBanner";
 import { ProjectPicker } from "@/components/ProjectPicker";
 import { SessionPicker } from "@/components/SessionPicker";
 import { TerminalPanel } from "@/components/TerminalPanel";
@@ -51,6 +53,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { useHaptics } from "@/hooks/useHaptics";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type { WorkspacePanel } from "@/types/opencode";
+import { shareSessionMarkdown } from "@/utils/export-session";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "Workspace">;
 
@@ -223,6 +226,15 @@ export function WorkspaceScreen() {
     navigation.replace("Connection");
   }, [disconnect, navigation]);
 
+  const handleExportSession = useCallback(async () => {
+    if (!session) return;
+    try {
+      await shareSessionMarkdown(session, messages);
+    } catch (error) {
+      console.error("Failed to export session:", error);
+    }
+  }, [messages, session]);
+
   const handlePanelChange = useCallback(
     (panel: WorkspacePanel) => {
       setActivePanel(panel);
@@ -378,6 +390,8 @@ export function WorkspaceScreen() {
               <Text style={styles.title}>{worktreeName}</Text>
               <ChevronDown color={colors.textMuted} size={16} />
             </View>
+          </Pressable>
+          <Pressable onPress={() => setSessionPickerOpen(true)}>
             <Text style={styles.subtitle}>
               {status === "reconnecting"
                 ? "Reconnecting..."
@@ -408,6 +422,31 @@ export function WorkspaceScreen() {
               <Text style={styles.overflowText}>New session</Text>
             </View>
           </Pressable>
+          <Pressable
+            onPress={() => {
+              setOverflowOpen(false);
+              setSessionPickerOpen(true);
+            }}
+            style={styles.overflowItem}
+          >
+            <Text style={styles.overflowText}>Sessions</Text>
+          </Pressable>
+          {session ? (
+            <Pressable
+              onPress={() => {
+                setOverflowOpen(false);
+                void handleExportSession();
+              }}
+              style={styles.overflowItem}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
+                <Share2 color={colors.textMuted} size={16} />
+                <Text style={styles.overflowText}>Export session</Text>
+              </View>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => {
               setOverflowOpen(false);
@@ -463,6 +502,7 @@ export function WorkspaceScreen() {
       ) : null}
 
       <PermissionBanner />
+      <QuestionBanner />
 
       <View style={styles.content}>
         {activePanel === "terminal" ? (
