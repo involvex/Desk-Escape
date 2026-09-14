@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Save,
   Server,
+  Settings,
   Trash2,
   Wifi,
   X,
@@ -145,9 +146,17 @@ export function ConnectionScreen() {
     () =>
       StyleSheet.create({
         container: {
-          flex: 1,
+          flexGrow: 1,
           backgroundColor: colors.background,
           padding: spacing.lg,
+        },
+        header: {
+          flexDirection: "row",
+          justifyContent: "flex-end",
+          marginBottom: spacing.sm,
+        },
+        settingsButton: {
+          padding: spacing.sm,
         },
         title: {
           color: colors.text,
@@ -377,6 +386,16 @@ export function ConnectionScreen() {
       contentContainerStyle={styles.container}
       keyboardShouldPersistTaps="handled"
     >
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => navigation.navigate("Settings")}
+          style={styles.settingsButton}
+          hitSlop={8}
+        >
+          <Settings color={colors.textMuted} size={22} />
+        </Pressable>
+      </View>
+
       <Text style={styles.title}>Desk Escape</Text>
       <Text style={styles.subtitle}>
         Connect to your OpenCode host over Tailscale or myfritz.link.
