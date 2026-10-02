@@ -1,4 +1,4 @@
-import type { Message, Part } from "@opencode-ai/sdk/client";
+import type { ChatMessage } from "@/types/domain";
 
 export type AgentProviderType = "opencode" | "cursor";
 
@@ -39,11 +39,6 @@ export interface ProviderSession {
   status: "active" | "idle" | "running" | "error";
 }
 
-type MessageWithParts = {
-  info: Message;
-  parts: Part[];
-};
-
 export interface AgentProvider {
   readonly type: AgentProviderType;
   readonly name: string;
@@ -62,7 +57,7 @@ export interface AgentProvider {
   deleteSession(id: string): Promise<void>;
   selectSession(id: string): Promise<ProviderSession>;
 
-  getMessages(sessionId: string): Promise<MessageWithParts[]>;
+  getMessages(sessionId: string): Promise<ChatMessage[]>;
   sendPrompt(
     sessionId: string,
     text: string,

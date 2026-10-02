@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Command, Plus, ChevronDown, Cpu } from "lucide-react-native";
-import { useSessions, useAgents, useModels } from "@/api/hooks";
+import { useCurrentAgent, useCurrentModel, useSessions } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -25,8 +25,12 @@ export function WorkspaceToolbar({
   const { colors, spacing, typography } = useTheme();
   const { sessionId, session, currentAgentKey, currentModel } = useConnection();
   const { data: sessions = [] } = useSessions();
-  const { data: agents = {} } = useAgents();
-  const { data: providers = {} } = useModels();
+
+  // V2 agents and models are first-class lists, so the header resolves the
+  // session's current pair directly instead of reverse-lookup through a
+  // provider-keyed config map that no longer exists.
+  const { data: sessionAgent = null } = useCurrentAgent(sessionId);
+  const { data: sessionModel = null } = useCurrentModel(sessionId);
 
   const recentSessions = useMemo(() => {
     const sorted = [...sessions].sort(
@@ -35,10 +39,15 @@ export function WorkspaceToolbar({
     return sorted.slice(0, 3);
   }, [sessions]);
 
-  const currentAgent = currentAgentKey ? agents[currentAgentKey] : null;
-  const currentModelInfo = currentModel
-    ? providers[currentModel.providerId]?.models?.[currentModel.modelId]
-    : null;
+  // Fall back to the locally-tracked selection until the server answers.
+  const activeAgentName = sessionAgent?.name ?? currentAgentKey ?? null;
+  const activeModelLabel =
+    sessionModel?.name ||
+    sessionModel?.id ||
+    (currentModel
+      ? `${currentModel.providerId}/${currentModel.modelId}`
+      : null);
+  const activeAgentColor = sessionAgent?.color;
 
   const styles = useMemo(
     () =>
@@ -110,8 +119,8 @@ export function WorkspaceToolbar({
   );
 
   const renderAgentChip = () => {
-    if (!currentAgent) return null;
-    const agentColor = currentAgent.color || colors.accent;
+    if (!activeAgentName) return null;
+    const agentColor = activeAgentColor || colors.accent;
     return (
       <Pressable onPress={onOpenAgentPicker} style={styles.chip}>
         <View
@@ -123,7 +132,7 @@ export function WorkspaceToolbar({
           ]}
         />
         <Text numberOfLines={1} style={styles.chipText}>
-          {currentAgent.name || currentAgentKey}
+          {activeAgentName}
         </Text>
         <ChevronDown color={colors.textMuted} size={10} />
       </Pressable>
@@ -131,12 +140,12 @@ export function WorkspaceToolbar({
   };
 
   const renderModelChip = () => {
-    if (!currentModelInfo) return null;
+    if (!activeModelLabel) return null;
     return (
       <Pressable onPress={onOpenModelPicker} style={styles.chip}>
         <Cpu color={colors.accent} size={12} />
         <Text numberOfLines={1} style={styles.chipText}>
-          {currentModelInfo.name || currentModel!.modelId}
+          {activeModelLabel}
         </Text>
         <ChevronDown color={colors.textMuted} size={10} />
       </Pressable>

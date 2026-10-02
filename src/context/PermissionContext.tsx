@@ -10,11 +10,15 @@ import {
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import {
+  listPendingPermissions,
   parsePermissionEvent,
-  respondToPermission,
+  parsePermissionRepliedEvent,
+  replyToPermission,
+  toPendingPermission,
   type PendingPermission,
   type PermissionResponse,
 } from "@/api/permissions";
+import { toOpenCodeError } from "@/api/opencode/errors";
 import { useConnection } from "@/context/ConnectionContext";
 import { usePreferences } from "@/context/PreferencesContext";
 import {
@@ -28,6 +32,11 @@ interface PermissionContextValue {
   pending: PendingPermission | null;
   respond: (response: PermissionResponse) => Promise<void>;
   dismiss: () => void;
+  /** `true` while a reply is in flight, so the banner can disable its buttons. */
+  busy: boolean;
+  /** Last failure message, or `null`. */
+  error: string | null;
+  clearError: () => void;
 }
 
 const PermissionContext = createContext<PermissionContextValue | undefined>(
@@ -35,27 +44,28 @@ const PermissionContext = createContext<PermissionContextValue | undefined>(
 );
 
 export function PermissionProvider({ children }: { children: ReactNode }) {
-  const { client, activeDirectory, eventBus } = useConnection();
+  const { client: v2Client, activeDirectory, eventBus } = useConnection();
   const { autoApprovePermissions } = usePreferences();
   const [pending, setPending] = useState<PendingPermission | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [appState, setAppState] = useState<AppStateStatus>(
     AppState.currentState,
   );
 
   const handlePermission = useCallback(
     async (permission: PendingPermission) => {
-      if (autoApprovePermissions && client) {
+      if (autoApprovePermissions && v2Client) {
         try {
-          await respondToPermission(client, {
+          await replyToPermission(v2Client, {
             sessionId: permission.sessionId,
             permissionId: permission.id,
             response: "always",
-            directory: activeDirectory,
           });
+          return;
         } catch {
-          setPending(permission);
+          // Fall through and ask the user instead of silently dropping it.
         }
-        return;
       }
 
       setPending(permission);
@@ -67,7 +77,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [activeDirectory, appState, autoApprovePermissions, client],
+    [appState, autoApprovePermissions, v2Client],
   );
 
   useEffect(() => {
@@ -76,19 +86,47 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!client || !eventBus) return;
+    if (!v2Client || !eventBus) return;
 
-    const unsubscribe = eventBus.onEvent((event: unknown) => {
-      const permissionData = parsePermissionEvent(
-        event as { type: string; properties?: Record<string, unknown> },
-      );
-      if (permissionData) {
-        handlePermission(permissionData);
+    const unsubscribe = eventBus.onEvent((event) => {
+      // `permission.replied` closes the request, whoever answered it.
+      const replied = parsePermissionRepliedEvent(event);
+      if (replied) {
+        setPending((current) => (current?.id === replied.id ? null : current));
+        return;
+      }
+
+      const permission = parsePermissionEvent(event);
+      if (permission) {
+        void handlePermission(permission);
       }
     });
 
     return unsubscribe;
-  }, [client, eventBus, handlePermission]);
+  }, [v2Client, eventBus, handlePermission]);
+
+  // The banner shows one request at a time. On mount (or on reconnect) adopt
+  // whatever the server already considers pending for this location so a
+  // request that arrived while the app was closed is not lost.
+  useEffect(() => {
+    if (!v2Client) return;
+
+    let cancelled = false;
+    void listPendingPermissions(v2Client, activeDirectory)
+      .then((requests) => {
+        const first = requests[0];
+        if (cancelled || !first) return;
+        setPending((current) => current ?? toPendingPermission(first));
+      })
+      .catch(() => {
+        // A failed rehydration is not worth surfacing; the SSE stream still
+        // delivers anything that arrives from here on.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [v2Client, activeDirectory]);
 
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener(
@@ -107,26 +145,28 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
             action === "reject" ||
             action === "always-allow"
           ) {
-            if (client) {
-              respondToPermission(client, {
+            if (v2Client) {
+              replyToPermission(v2Client, {
                 sessionId: data.sessionId,
                 permissionId: data.permissionId,
                 response: actionToResponse(action),
-                directory: activeDirectory,
-              }).catch((error) => {
+              }).catch((replyError) => {
                 console.error(
                   "Failed to respond to permission via notification:",
-                  error,
+                  toOpenCodeError(replyError).message,
                 );
               });
             }
             return;
           }
 
-          // Default: app opened without action, show in-app banner
+          // Default: app opened without action, show in-app banner.
           setPending({
             id: data.permissionId,
             sessionId: data.sessionId,
+            action: "",
+            resources: [],
+            message: "",
             title: response.notification.request.content.title ?? "Permission",
             description:
               response.notification.request.content.body?.toString() ?? "",
@@ -137,32 +177,44 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     );
 
     return () => sub.remove();
-  }, [activeDirectory, client]);
+  }, [v2Client]);
 
   const respond = useCallback(
     async (response: PermissionResponse) => {
-      if (!client || !pending) {
+      if (!v2Client || !pending) {
         return;
       }
 
-      await respondToPermission(client, {
-        sessionId: pending.sessionId,
-        permissionId: pending.id,
-        response,
-        directory: activeDirectory,
-      });
-      setPending(null);
+      setBusy(true);
+      setError(null);
+      try {
+        await replyToPermission(v2Client, {
+          sessionId: pending.sessionId,
+          permissionId: pending.id,
+          response,
+        });
+        setPending(null);
+      } catch (replyError) {
+        setError(toOpenCodeError(replyError).message);
+        throw replyError;
+      } finally {
+        setBusy(false);
+      }
     },
-    [activeDirectory, client, pending],
+    [v2Client, pending],
   );
 
   const dismiss = useCallback(() => {
     setPending(null);
   }, []);
 
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   const value = useMemo(
-    () => ({ pending, respond, dismiss }),
-    [dismiss, pending, respond],
+    () => ({ pending, respond, dismiss, busy, error, clearError }),
+    [busy, clearError, dismiss, error, pending, respond],
   );
 
   return (

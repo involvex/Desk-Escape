@@ -1,23 +1,26 @@
 export { OpenCodeProvider, createOpenCodeProvider } from "./provider";
+
+// Single canonical implementations -- see the note in `./client.ts`.
 export {
   buildConnectionConfig,
   clearClientCache,
   configToTargetUrl,
-  createAuthenticatedClient,
   createAuthHeader,
+  createAuthenticatedClient,
   ensureSession,
   fetchCurrentProject,
   fetchProjectList,
+  getClientCacheKey,
   getWorktreeName,
   parseTarget,
   testConnection,
-} from "./client";
-export { EventBus } from "./event-bus";
+} from "@/api/client";
+export { EventBus } from "@/api/event-bus";
 export {
   applyStreamEvent,
   isAgentBusyEvent,
   shouldRefetchMessages,
-} from "./message-stream";
+} from "@/api/message-stream";
 export type {
   AgentProvider,
   AgentProviderType,

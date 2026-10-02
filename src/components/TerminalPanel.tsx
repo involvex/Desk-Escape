@@ -1,5 +1,10 @@
-// TerminalPanel.tsx - Fixed version with proper error handling and authentication support
-import { useCallback, useMemo, useRef, useState } from "react";
+// TerminalPanel.tsx - xterm.js terminal backed by an OpenCode V2 PTY.
+//
+// Auth note: the shell no longer authenticates the socket with credentials.
+// V2 issues a short-lived connect ticket over HTTP
+// (`POST /api/pty/{id}/connect-token`) that travels in the WebSocket query
+// string, so `basicAuthCredential` is no longer needed here.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -9,7 +14,9 @@ import {
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useCurrentProject } from "@/api/hooks";
-import { usePtySession } from "@/api/use-pty-session";
+import { requestPtyConnectTicket, usePtySession } from "@/api/use-pty-session";
+import { toOpenCodeError, withOpenCodeErrors } from "@/api/opencode/errors";
+import { withLocation } from "@/api/opencode/location";
 import { TERMINAL_SHELL_HTML } from "@/assets/terminal-shell-html";
 import { useConnection } from "@/context/ConnectionContext";
 import { usePreferences } from "@/context/PreferencesContext";
@@ -41,8 +48,7 @@ type WebViewConnectionState =
 
 export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const { colors, spacing, typography } = useTheme();
-  const { client, config, project, basicAuthCredential, activeDirectory } =
-    useConnection();
+  const { client, config, project, activeDirectory } = useConnection();
   const { data: currentProject, isLoading: projectLoading } =
     useCurrentProject();
   const { terminalShell } = usePreferences();
@@ -59,43 +65,92 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     terminalShell,
   );
 
-  const { wsUrl, authError } = useMemo(() => {
-    if (!config || !ptyId || !directory) {
-      return { wsUrl: null, authError: null };
+  // V2 socket auth. The ticket is short-lived, so it is fetched per (re)connect
+  // instead of being derived from the connection credentials like V1's
+  // `auth_token` query parameter was. The result is stored together with the key
+  // it belongs to, so a new request invalidates the previous ticket without a
+  // synchronous `setState` in the effect body.
+  const [ticketNonce, setTicketNonce] = useState(0);
+  const ticketKey =
+    client && ptyId && directory
+      ? `${config?.baseUrl ?? ""}:${ptyId}:${directory}:${ticketNonce}`
+      : null;
+  const [ticketState, setTicketState] = useState<{
+    key: string | null;
+    ticket: string | null;
+    error: string | null;
+  }>({ key: null, ticket: null, error: null });
+
+  const ticket = ticketState.key === ticketKey ? ticketState.ticket : null;
+  const ticketError = ticketState.key === ticketKey ? ticketState.error : null;
+
+  useEffect(() => {
+    if (!ticketKey || !client || !ptyId || !directory) {
+      return;
+    }
+
+    let cancelled = false;
+
+    requestPtyConnectTicket(client, ptyId, directory)
+      .then((result) => {
+        if (!cancelled) {
+          setTicketState({
+            key: ticketKey,
+            ticket: result.ticket,
+            error: null,
+          });
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setTicketState({
+            key: ticketKey,
+            ticket: null,
+            error: toOpenCodeError(caught).message,
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, directory, ptyId, ticketKey]);
+
+  const { wsUrl, buildError } = useMemo(() => {
+    if (!config || !ptyId || !directory || !ticket) {
+      return { wsUrl: null, buildError: null as string | null };
     }
 
     try {
       const url = buildTerminalWebSocketUrl({
         baseUrl: config.baseUrl,
         ptyId,
+        ticket,
         directory,
-        username: basicAuthCredential?.username ?? config.username,
-        password: basicAuthCredential?.password,
+        cursor: 0,
       });
-      return { wsUrl: url, authError: null };
+      return { wsUrl: url, buildError: null as string | null };
     } catch (err) {
       return {
         wsUrl: null,
-        authError:
+        buildError:
           err instanceof Error ? err.message : "Failed to build WebSocket URL",
       };
     }
-  }, [basicAuthCredential, config, directory, ptyId]);
+  }, [config, directory, ptyId, ticket]);
 
   const terminalPayload = useMemo(() => {
     if (!wsUrl) return null;
     return {
       wsUrl,
+      // Kept alongside the URL (which already carries the ticket) so the
+      // injected shell payload documents how the socket was authenticated.
       auth: {
-        username: basicAuthCredential?.username ?? config?.username,
-        password: basicAuthCredential?.password ?? "",
-        hasAuth: !!(
-          basicAuthCredential?.password ||
-          (config?.useAuth && config?.username)
-        ),
+        ticket: ticket ?? "",
+        hasTicket: Boolean(ticket),
       },
     };
-  }, [wsUrl, basicAuthCredential, config]);
+  }, [wsUrl, ticket]);
 
   const injectedBeforeLoad = useMemo(() => {
     if (!terminalPayload) {
@@ -123,13 +178,17 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         return;
       }
 
-      void client.pty.update({
-        path: { id: ptyId },
-        query: { directory },
-        body: {
+      // V2 takes `ptyID` + a `location` scope, with the size inlined next to the
+      // other updatable fields (`title`) rather than in a nested `body`.
+      // A failed resize only affects the server-side window size, so it is
+      // swallowed rather than surfaced on top of a working terminal.
+      void withOpenCodeErrors(() =>
+        client.pty.update({
+          ptyID: ptyId,
+          ...withLocation(directory),
           size: { cols, rows },
-        },
-      });
+        }),
+      ).catch(() => undefined);
     },
     [client, directory, ptyId],
   );
@@ -170,6 +229,8 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const handleWebViewReload = useCallback(() => {
     setWebViewState("loading");
     setWebViewError(null);
+    // The old connect ticket may already be expired, so force a fresh one.
+    setTicketNonce((value) => value + 1);
     reset();
   }, [reset]);
 
@@ -247,7 +308,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           fontSize: typography.caption,
           marginLeft: "auto",
         },
-        authErrorContainer: {
+        ticketErrorContainer: {
           backgroundColor: colors.surfaceElevated,
           borderColor: colors.danger,
           borderWidth: 1,
@@ -256,13 +317,13 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           marginHorizontal: spacing.lg,
           marginTop: spacing.md,
         },
-        authErrorTitle: {
+        ticketErrorTitle: {
           color: colors.danger,
           fontSize: typography.body,
           fontWeight: "600",
           marginBottom: spacing.xs,
         },
-        authErrorMessage: {
+        ticketErrorMessage: {
           color: colors.text,
           fontSize: typography.caption,
         },
@@ -294,24 +355,37 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     );
   }
 
-  if (status === "error" || !wsUrl) {
-    const errorMessage =
-      status === "error" ? error : authError || "Unknown error";
+  const sessionError: string | null = status === "error" ? error : null;
+  const terminalError: string | null =
+    sessionError ?? ticketError ?? buildError;
+
+  if (terminalError) {
+    const errorMessage = terminalError;
     return (
       <View style={styles.container}>
         <View style={styles.centered}>
           <Text style={styles.title}>Terminal failed</Text>
           <Text style={styles.message}>{errorMessage}</Text>
-          {authError ? (
-            <View style={styles.authErrorContainer}>
-              <Text style={styles.authErrorTitle}>Authentication Required</Text>
-              <Text style={styles.authErrorMessage}>
-                The terminal requires authentication credentials. Please check
-                your OpenCode server configuration.
+          {ticketError ? (
+            <View style={styles.ticketErrorContainer}>
+              <Text style={styles.ticketErrorTitle}>
+                Connect ticket refused
+              </Text>
+              <Text style={styles.ticketErrorMessage}>
+                OpenCode would not issue a WebSocket connect ticket for this
+                PTY. Check that the server allows this client, then retry.
               </Text>
             </View>
           ) : null}
-          <Pressable onPress={() => void retry()} style={styles.retryButton}>
+          <Pressable
+            onPress={() => {
+              // A ticket failure is not fixed by re-listing the PTY, so force a
+              // fresh ticket request on retry as well.
+              setTicketNonce((value) => value + 1);
+              void retry();
+            }}
+            style={styles.retryButton}
+          >
             <Text style={styles.retryLabel}>Retry</Text>
           </Pressable>
         </View>
@@ -319,12 +393,14 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     );
   }
 
-  if (status === "loading") {
+  if (!wsUrl) {
     return (
       <View style={styles.container}>
         <View style={styles.centered}>
           <ActivityIndicator color={colors.accent} />
-          <Text style={styles.message}>Starting shell...</Text>
+          <Text style={styles.message}>
+            {status === "ready" ? "Authorizing shell..." : "Starting shell..."}
+          </Text>
         </View>
       </View>
     );

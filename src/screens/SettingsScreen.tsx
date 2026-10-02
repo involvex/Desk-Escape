@@ -3,7 +3,6 @@ import * as LocalAuthentication from "expo-local-authentication";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,7 +18,13 @@ import {
   ExternalLink,
   Trash2,
 } from "lucide-react-native";
-import { useOpenCodeConfig, useUpdateConfig } from "@/api/hooks";
+import { useOpenCodeConfig, useUpdateShell } from "@/api/hooks";
+import {
+  configCounts,
+  configDirectories,
+  configShell,
+  configSources,
+} from "@/api/opencode/config";
 import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { useOrientation } from "@/context/OrientationContext";
 import {
@@ -110,10 +115,10 @@ export function SettingsScreen({ navigation }: Props) {
   const { lockState, authenticate, setBiometricLockEnabled } =
     useBiometricLockContext();
   const { data: config, isLoading } = useOpenCodeConfig();
-  const updateConfig = useUpdateConfig();
-  const [jsonDraft, setJsonDraft] = useState("");
-  const [jsonError, setJsonError] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const updateShell = useUpdateShell();
+  const [shellDraft, setShellDraft] = useState<string | null>(null);
+  const [shellError, setShellError] = useState<string | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
   const [newPresetLabel, setNewPresetLabel] = useState("");
   const [newPresetText, setNewPresetText] = useState("");
   const [newTemplateName, setNewTemplateName] = useState("");
@@ -329,36 +334,43 @@ export function SettingsScreen({ navigation }: Props) {
     [colors, spacing, typography],
   );
 
-  const handleOpenAdvanced = () => {
-    if (config) {
-      setJsonDraft(JSON.stringify(config, null, 2));
-    }
-    setShowAdvanced(true);
+  // --- Server config ---------------------------------------------------------
+  //
+  // V2 dropped the old "Advanced JSON editor". `config.update` is
+  // `PATCH /api/experimental/config` with the single field `{ shell }`, so
+  // posting a whole config document is no longer a schema-valid request and a
+  // free-form editor here could only ever fail (or, worse, silently do nothing
+  // while appearing to save). `shell` is the one writable field, so that is the
+  // one control, and the resolved config is exposed read-only for inspection.
+
+  const counts = useMemo(() => configCounts(config), [config]);
+  const serverShell = configShell(config);
+  const shellValue = shellDraft ?? serverShell ?? "";
+  const resolvedConfigJson = useMemo(
+    () => (config ? JSON.stringify(config, null, 2) : ""),
+    [config],
+  );
+
+  const applyShell = (next: string | null) => {
+    setShellError(null);
+    void updateShell
+      .mutateAsync(next)
+      .then(() => setShellDraft(null))
+      .catch((error: unknown) => {
+        setShellError(
+          error instanceof Error ? error.message : "Failed to update shell.",
+        );
+      });
   };
 
-  const handleSaveJson = () => {
-    try {
-      const parsed = JSON.parse(jsonDraft) as Record<string, unknown>;
-      setJsonError(null);
-      Alert.alert(
-        "Update server config?",
-        "This updates OpenCode globally on the connected host.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Save",
-            style: "destructive",
-            onPress: () => {
-              void updateConfig.mutateAsync(
-                parsed as Parameters<typeof updateConfig.mutateAsync>[0],
-              );
-            },
-          },
-        ],
-      );
-    } catch {
-      setJsonError("Invalid JSON.");
-    }
+  const handleSaveShell = () => {
+    const trimmed = (shellDraft ?? serverShell ?? "").trim();
+    applyShell(trimmed.length > 0 ? trimmed : null);
+  };
+
+  const handleClearShell = () => {
+    setShellDraft("");
+    applyShell(null);
   };
 
   const handleAddPreset = () => {
@@ -817,47 +829,98 @@ export function SettingsScreen({ navigation }: Props) {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Server config</Text>
             <Text style={styles.meta}>
-              Agents: {Object.keys(config?.agent ?? {}).length} · Commands:{" "}
-              {Object.keys(config?.command ?? {}).length} · Plugins:{" "}
-              {(config?.plugin ?? []).length}
+              Agents: {counts.agents} · Commands: {counts.commands} · Plugins:{" "}
+              {counts.plugins} · Providers: {counts.providers}
             </Text>
+            <Text style={styles.meta}>
+              {serverShell
+                ? `Server shell: ${serverShell}`
+                : "Server shell: not set (OpenCode default)"}
+            </Text>
+            <Text style={styles.warning}>
+              OpenCode 2.x exposes one writable config field: `shell`. Agents,
+              commands, providers, permissions and the plugin list are read-only
+              over the API, so this app can no longer edit them.
+            </Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setShellDraft}
+              placeholder="Shell command, e.g. /bin/bash"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              value={shellValue}
+            />
+            {shellError ? (
+              <Text style={styles.warning}>{shellError}</Text>
+            ) : null}
+            <View
+              style={{
+                alignItems: "center",
+                flexDirection: "row",
+                gap: spacing.md,
+              }}
+            >
+              <Pressable
+                disabled={updateShell.isPending}
+                onPress={handleSaveShell}
+                style={[styles.saveButton, { flex: 1, marginBottom: 0 }]}
+              >
+                <Text style={styles.saveText}>
+                  {updateShell.isPending ? "Saving..." : "Save shell"}
+                </Text>
+              </Pressable>
+              <Pressable
+                disabled={updateShell.isPending || !serverShell}
+                onPress={handleClearShell}
+              >
+                <Text style={styles.linkButton}>Clear</Text>
+              </Pressable>
+            </View>
             <Pressable
               onPress={() => navigation.navigate("Plugins")}
               style={styles.row}
             >
-              <Text style={styles.rowLabel}>Plugin manager</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>Plugin list</Text>
+                <Text style={styles.meta}>
+                  Read-only in OpenCode 2.x — view, check and update only.
+                </Text>
+              </View>
               <ChevronRight color={colors.textMuted} size={18} />
             </Pressable>
-            <Pressable onPress={handleOpenAdvanced} style={styles.row}>
-              <Text style={styles.rowLabel}>Advanced JSON editor</Text>
-              <ChevronRight color={colors.textMuted} size={18} />
+            <Pressable
+              onPress={() => setShowConfig((value) => !value)}
+              style={styles.row}
+            >
+              <Text style={styles.rowLabel}>Resolved config (read-only)</Text>
+              <ChevronRight
+                color={colors.textMuted}
+                size={18}
+                style={{
+                  transform: [{ rotate: showConfig ? "90deg" : "0deg" }],
+                }}
+              />
             </Pressable>
           </View>
 
-          {showAdvanced ? (
+          {showConfig ? (
             <View style={styles.section}>
-              <Text style={styles.warning}>
-                Changes apply to the OpenCode server globally. A reload may be
-                required for plugins.
+              <Text style={styles.meta}>
+                Merged from{" "}
+                {configSources(config).length > 0
+                  ? configSources(config).join(" · ")
+                  : "no config documents"}
+                {configDirectories(config).length > 0
+                  ? ` — searched ${configDirectories(config).join(", ")}`
+                  : ""}
               </Text>
               <TextInput
+                editable={false}
                 multiline
-                onChangeText={setJsonDraft}
                 style={styles.jsonInput}
-                value={jsonDraft}
+                value={resolvedConfigJson}
               />
-              {jsonError ? (
-                <Text style={styles.warning}>{jsonError}</Text>
-              ) : null}
-              <Pressable
-                disabled={updateConfig.isPending}
-                onPress={handleSaveJson}
-                style={styles.saveButton}
-              >
-                <Text style={styles.saveText}>
-                  {updateConfig.isPending ? "Saving..." : "Save config"}
-                </Text>
-              </Pressable>
             </View>
           ) : null}
 

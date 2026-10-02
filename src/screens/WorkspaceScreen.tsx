@@ -274,7 +274,9 @@ export function WorkspaceScreen() {
           void selectSession(action.session.id);
           break;
         case "project":
-          void selectProject(action.project.worktree);
+          if (action.project.worktree) {
+            void selectProject(action.project.worktree);
+          }
           break;
         case "command":
           setActivePanel("agent");

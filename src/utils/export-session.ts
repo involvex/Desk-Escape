@@ -1,5 +1,6 @@
 import { Share } from "react-native";
-import type { Session } from "@opencode-ai/sdk/client";
+import { toolOutputText } from "@/types/domain";
+import type { Session } from "@/types/domain";
 import type { MessageWithParts } from "@/types/opencode";
 
 export function exportSessionToMarkdown(
@@ -47,42 +48,40 @@ export function exportSessionToMarkdown(
       if (part.type === "text" && "text" in part && part.text) {
         lines.push(part.text);
         lines.push("");
-      } else if (part.type === "tool" && "tool" in part) {
-        const toolPart = part as {
-          tool?: string;
-          state?: { input?: unknown; output?: unknown };
-        };
-        lines.push(`### Tool: ${toolPart.tool ?? "unknown"}`);
+      } else if (part.type === "tool") {
+        lines.push(`### Tool: ${part.tool ?? "unknown"}`);
         lines.push("");
-        if (toolPart.state?.input) {
+        if (part.status !== "completed" && part.status !== "error") {
+          lines.push(`_${part.status}_`);
+          lines.push("");
+        }
+        const input = part.input
+          ? JSON.stringify(part.input, null, 2)
+          : part.rawInput;
+        if (input) {
           lines.push("**Input:**");
           lines.push("```");
-          lines.push(
-            typeof toolPart.state.input === "string"
-              ? toolPart.state.input
-              : JSON.stringify(toolPart.state.input, null, 2),
-          );
+          lines.push(input);
           lines.push("```");
           lines.push("");
         }
-        if (toolPart.state?.output) {
+        // V2 replaced V1's single `output` string with structured `content[]`.
+        const output = toolOutputText(part);
+        if (output) {
           lines.push("**Output:**");
           lines.push("```");
-          lines.push(
-            typeof toolPart.state.output === "string"
-              ? toolPart.state.output
-              : JSON.stringify(toolPart.state.output, null, 2),
-          );
+          lines.push(output);
           lines.push("```");
           lines.push("");
         }
-      } else if (part.type === "reasoning" && "text" in part && part.text) {
+        if (part.error) {
+          lines.push(`**Error:** ${part.error}`);
+          lines.push("");
+        }
+      } else if (part.type === "reasoning" && part.text) {
         lines.push("### Reasoning");
         lines.push("");
-        lines.push(String(part.text));
-        lines.push("");
-      } else if (part.type === "file" && "filename" in part && part.filename) {
-        lines.push(`Attachment: ${String(part.filename)}`);
+        lines.push(part.text);
         lines.push("");
       }
     }

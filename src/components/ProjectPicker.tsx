@@ -1,4 +1,4 @@
-import type { Project } from "@opencode-ai/sdk/client";
+import type { Project } from "@/types/domain";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -143,6 +143,11 @@ export function ProjectPicker({ visible, onClose }: ProjectPickerProps) {
   );
 
   const handleSelect = (project: Project) => {
+    // `worktree` is optional on the domain type; a project without a resolved
+    // directory cannot be switched to.
+    if (!project.worktree) {
+      return;
+    }
     void selectProject(project.worktree).then(() => onClose());
   };
 

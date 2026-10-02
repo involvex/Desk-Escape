@@ -1,4 +1,4 @@
-import type { Session } from "@opencode-ai/sdk/client";
+import type { Session } from "@/types/domain";
 
 export interface ArchivePartition {
   active: Session[];

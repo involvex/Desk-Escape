@@ -1,4 +1,4 @@
-import type { Command, Project, Session } from "@opencode-ai/sdk/client";
+import type { Command, Project, Session } from "@/types/domain";
 import { useMemo, useState } from "react";
 import {
   FlatList,
@@ -207,7 +207,7 @@ export function CommandPalette({
       case "session":
         return item.session.id === sessionId ? "Active session" : "Session";
       case "project":
-        return item.project.worktree;
+        return item.project.worktree ?? item.project.id;
       case "command":
         return item.command.description ?? "Slash command";
       case "app":

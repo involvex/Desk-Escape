@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import type { OpencodeClient, Project, Session } from "@opencode-ai/sdk/client";
+import type { OpenCodeClient } from "@opencode/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -21,8 +21,8 @@ import {
   fetchCurrentProject,
   testConnection,
 } from "@/api/client";
-import { withDirectoryQuery } from "@/api/directory";
 import { bestSession } from "@/utils/session-ranking";
+import { toSession } from "@/api/opencode/adapter";
 import { useOfflineQueue } from "@/api/use-offline-queue";
 import { useReconnect } from "@/api/use-reconnect";
 import { useHaptics } from "@/hooks/useHaptics";
@@ -43,6 +43,7 @@ import type {
   QueuedMessage,
   StoredConnectionConfig,
 } from "@/types/opencode";
+import type { Project, Session } from "@/types/domain";
 
 const CONFIG_STORAGE_KEY = "@desk-escape/connection-config";
 const CONNECTION_DRAFT_KEY = "@desk-escape/connection-draft";
@@ -53,7 +54,7 @@ const DIRECTORY_KEY_PREFIX = "@desk-escape/directory:";
 const PROJECT_ACCESS_KEY = "@desk-escape/project-access";
 
 interface ConnectionContextValue {
-  client: OpencodeClient | null;
+  client: OpenCodeClient | null;
   config: ConnectionConfig | null;
   cursorConfig: CursorConnectionConfig | null;
   providerType: AgentProviderType | null;
@@ -233,29 +234,28 @@ export async function loadStoredConnectionConfig(): Promise<StoredConnectionConf
 }
 
 async function sendPromptDirectly(
-  client: OpencodeClient,
+  client: OpenCodeClient,
   sessionId: string,
-  directory: string | null,
   text: string,
   attachments: { path: string; name: string }[],
 ): Promise<void> {
-  const attachmentParts = attachments.map((a) => ({
-    type: "text" as const,
-    text: `Context attachment: ${a.path}`,
-  }));
+  // V2's prompt body is flat: a single `text` field plus optional
+  // `files`/`agents`/`skills`. There is no `parts` array, and `model`/`agent`
+  // are no longer accepted here -- they are switched separately.
+  const prefix = attachments
+    .map((a) => `Context attachment: ${a.path}\n`)
+    .join("");
 
   await client.session.prompt({
-    path: { id: sessionId },
-    ...(directory ? { query: { directory } } : {}),
-    body: {
-      parts: [...attachmentParts, { type: "text", text }],
-    },
+    sessionID: sessionId,
+    text: prefix + text,
+    delivery: "steer",
   });
 }
 
 export function ConnectionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [client, setClient] = useState<OpencodeClient | null>(null);
+  const [client, setClient] = useState<OpenCodeClient | null>(null);
   const [config, setConfig] = useState<ConnectionConfig | null>(null);
   const [cursorConfig, setCursorConfig] =
     useState<CursorConnectionConfig | null>(null);
@@ -294,15 +294,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const sendMessageDirectly = useCallback(
     async (text: string, attachments: QueuedMessage["attachments"]) => {
       if (!client || !session?.id) throw new Error("No active session.");
-      await sendPromptDirectly(
-        client,
-        session.id,
-        activeDirectory,
-        text,
-        attachments,
-      );
+      await sendPromptDirectly(client, session.id, text, attachments);
     },
-    [client, session, activeDirectory],
+    [client, session],
   );
 
   const { queue, enqueue, clearQueue, flushQueue } = useOfflineQueue({
@@ -501,30 +495,27 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     setBasicAuthCredential(null);
   }, [provider, eventBus]);
 
-  // Helper to convert ProviderSession to SDK Session format
-  const toSdkSession = useCallback(
+  // Normalize a provider-agnostic ProviderSession into the domain `Session`.
+  //
+  // This used to fabricate `projectID: ""` and `version: "1"`, which were V1
+  // SDK fields that no longer exist -- anything reading them got an empty
+  // string rather than real data.
+  const toDomainSession = useCallback(
     (session: {
       id: string;
       title: string;
       createdAt: string;
       updatedAt: string;
       status: string;
-    }): Session => {
-      const created = session.createdAt
-        ? Number(session.createdAt)
-        : Date.now();
-      const updated = session.updatedAt
-        ? Number(session.updatedAt)
-        : Date.now();
-      return {
-        id: session.id,
-        projectID: "",
-        directory: activeDirectory ?? "",
-        title: session.title,
-        version: "1",
-        time: { created, updated },
-      };
-    },
+    }): Session => ({
+      id: session.id,
+      title: session.title,
+      directory: activeDirectory ?? undefined,
+      time: {
+        created: session.createdAt ? Number(session.createdAt) : Date.now(),
+        updated: session.updatedAt ? Number(session.updatedAt) : Date.now(),
+      },
+    }),
     [activeDirectory],
   );
 
@@ -535,7 +526,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }
 
       const session = await provider.selectSession(sessionId);
-      setSession(toSdkSession(session));
+      setSession(toDomainSession(session));
       await saveDirectorySessionId(
         config?.baseUrl ?? "",
         activeDirectory,
@@ -544,7 +535,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       // Invalidate cached session data so next render fetches fresh state
       await queryClient.invalidateQueries();
     },
-    [provider, config, activeDirectory, queryClient, toSdkSession],
+    [provider, config, activeDirectory, queryClient, toDomainSession],
   );
 
   const selectProject = useCallback(
@@ -570,7 +561,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       if (savedSessionId) {
         try {
           const result = await provider.selectSession(savedSessionId);
-          setSession(toSdkSession(result));
+          setSession(toDomainSession(result));
           setContextAttachments([]);
           await queryClient.invalidateQueries();
           return;
@@ -579,9 +570,13 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 2. Fetch all sessions for this directory and pick the best one
-      const sessions = await client?.session.list(withDirectoryQuery(worktree));
-      const ranked = bestSession((sessions?.data ?? []) as Session[]);
+      // 2. Fetch all sessions for this directory and pick the best one.
+      // `session.list` filters by a plain `directory` string rather than the
+      // `location` object the other endpoints take.
+      const sessions = await client?.session.list({ directory: worktree });
+      const ranked = bestSession(
+        (sessions?.data ?? []).map(toSession) as Session[],
+      );
 
       if (ranked) {
         setSession(ranked);
@@ -589,14 +584,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       } else {
         // 3. No sessions exist — create one
         const created = await provider.createSession("Desk Escape");
-        setSession(toSdkSession(created));
+        setSession(toDomainSession(created));
         await saveDirectorySessionId(config.baseUrl, worktree, created.id);
       }
 
       setContextAttachments([]);
       await queryClient.invalidateQueries();
     },
-    [client, config, provider, queryClient, toSdkSession],
+    [client, config, provider, queryClient, toDomainSession],
   );
 
   const createSession = useCallback(
@@ -606,7 +601,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }
 
       const session = await provider.createSession(title);
-      const sdkSession = toSdkSession(session);
+      const sdkSession = toDomainSession(session);
       setSession(sdkSession);
       await saveDirectorySessionId(
         config?.baseUrl ?? "",
@@ -616,7 +611,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
       return sdkSession;
     },
-    [config, provider, queryClient, activeDirectory, toSdkSession],
+    [config, provider, queryClient, activeDirectory, toDomainSession],
   );
 
   const deleteSession = useCallback(
@@ -631,7 +626,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         const remaining = await provider.listSessions();
         const next = remaining[0];
         if (next) {
-          setSession(toSdkSession(next));
+          setSession(toDomainSession(next));
           await saveDirectorySessionId(
             config?.baseUrl ?? "",
             activeDirectory,
@@ -652,7 +647,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       session?.id,
       createSession,
       activeDirectory,
-      toSdkSession,
+      toDomainSession,
     ],
   );
 

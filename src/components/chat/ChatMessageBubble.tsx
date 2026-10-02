@@ -15,7 +15,7 @@ import {
 } from "@/components/chat/message-parts";
 import { usePreferences } from "@/context/PreferencesContext";
 import { useTheme } from "@/context/ThemeContext";
-import type { MessageWithParts, Part } from "@/types/opencode";
+import type { MessageWithParts, ChatPart } from "@/types/domain";
 
 interface ChatMessageBubbleProps {
   message: MessageWithParts;
@@ -25,9 +25,9 @@ interface ChatMessageBubbleProps {
   onRunCommand?: (command: string) => void;
 }
 
-function groupConsecutiveThinkingParts(parts: Part[]): Part[][] {
-  const groups: Part[][] = [];
-  let currentGroup: Part[] = [];
+function groupConsecutiveThinkingParts(parts: ChatPart[]): ChatPart[][] {
+  const groups: ChatPart[][] = [];
+  let currentGroup: ChatPart[] = [];
 
   for (const part of parts) {
     if (isThinkingPart(part)) {

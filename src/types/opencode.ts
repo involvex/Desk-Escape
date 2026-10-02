@@ -1,7 +1,31 @@
-import type { Message, Part } from "@opencode-ai/sdk/client";
-
 export type AgentProviderType = "opencode" | "cursor";
-export { Message, Part, ToolPart } from "@opencode-ai/sdk/client";
+
+/**
+ * Server data types now live in `@/types/domain` so that neither provider's
+ * wire shape leaks into the UI. Re-exported here for existing import sites.
+ */
+export type {
+  Agent,
+  ChatMessage,
+  ChatMessageInfo,
+  ChatMessageKind,
+  ChatPart,
+  ChatReasoningPart,
+  ChatTextPart,
+  ChatTokenUsage,
+  ChatToolContent,
+  ChatToolPart,
+  ChatToolStatus,
+  Command,
+  FileEntry,
+  MessageWithParts,
+  Model,
+  ModelCapabilities,
+  ModelCost,
+  Project,
+  Provider,
+  Session,
+} from "@/types/domain";
 
 export type ThemeName =
   | "oled-black"
@@ -62,10 +86,7 @@ export interface HealthResult {
   version?: string;
 }
 
-export interface MessageWithParts {
-  info: Message;
-  parts: Part[];
-}
+export { toolDurationMs, toolOutputText } from "@/types/domain";
 
 export interface DiffLine {
   type: "add" | "remove" | "context";

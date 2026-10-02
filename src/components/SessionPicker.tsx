@@ -1,4 +1,4 @@
-import type { Session } from "@opencode-ai/sdk/client";
+import type { Session } from "@/types/domain";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -24,7 +24,6 @@ import {
   X,
 } from "lucide-react-native";
 import { useSessions } from "@/api/hooks";
-import { withDirectoryQuery } from "@/api/directory";
 import { useConnection } from "@/context/ConnectionContext";
 import {
   useSessionMeta,
@@ -41,8 +40,7 @@ import {
 import { partitionArchived } from "@/utils/session-meta";
 import { Snackbar } from "@/components/Snackbar";
 import { Swipeable } from "react-native-gesture-handler";
-import type { MessageWithParts } from "@/types/opencode";
-
+import { toChatMessages } from "@/api/opencode/adapter";
 interface SessionPickerProps {
   visible: boolean;
   onClose: () => void;
@@ -74,7 +72,6 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
     createSession,
     deleteSession,
     client,
-    activeDirectory,
     setCurrentAgent,
     setCurrentModel,
   } = useConnection();
@@ -169,12 +166,12 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
         }
         const created = await createSession(template.name);
         if (template.prompt.trim() && client) {
+          // V2's prompt body is flat: a single `text` field, no `parts`.
+          // `model`/`agent` are session state and are switched separately.
           await client.session.prompt({
-            path: { id: created.id },
-            ...withDirectoryQuery(activeDirectory),
-            body: {
-              parts: [{ type: "text", text: template.prompt.trim() }],
-            },
+            sessionID: created.id,
+            text: template.prompt.trim(),
+            delivery: "steer",
           });
         }
         void refetch();
@@ -186,7 +183,6 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
       }
     },
     [
-      activeDirectory,
       client,
       createSession,
       onClose,
@@ -222,18 +218,20 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
         return;
       }
       try {
-        const result = await client.session.messages({
-          path: { id: session.id },
-          ...withDirectoryQuery(activeDirectory),
+        // V2 moved message listing to a top-level `message.list` namespace and
+        // returns messages nested, so run it through the shared adapter.
+        const result = await client.message.list({
+          sessionID: session.id,
+          order: "asc",
         });
-        const messages = (result.data ?? []) as MessageWithParts[];
+        const messages = toChatMessages(result.data);
         await shareSessionMarkdown(session, messages);
       } catch (error) {
         console.error("Failed to export session:", error);
         showSnackbar("Export failed");
       }
     },
-    [activeDirectory, client, showSnackbar],
+    [client, showSnackbar],
   );
 
   const openSessionActions = useCallback((session: Session) => {

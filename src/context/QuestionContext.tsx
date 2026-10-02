@@ -1,3 +1,4 @@
+import type { FormAnswer } from "@opencode/client";
 import {
   createContext,
   useCallback,
@@ -7,21 +8,36 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toOpenCodeError } from "@/api/opencode/errors";
 import {
-  isQuestionResolvedEvent,
-  listPendingQuestions,
-  parseQuestionEvent,
-  rejectQuestion,
-  replyToQuestion,
-  type PendingQuestion,
-} from "@/api/questions";
+  cancelForm,
+  listPendingForms,
+  parseFormEvent,
+  parseFormResolvedEvent,
+  replyToForm,
+  type PendingForm,
+} from "@/api/forms";
 import { useConnection } from "@/context/ConnectionContext";
 
 interface QuestionContextValue {
-  pending: PendingQuestion | null;
-  reply: (answers: string[][]) => Promise<void>;
-  reject: () => Promise<void>;
+  pending: PendingForm | null;
+  /** Submit `{ fieldKey: value }` answers. */
+  reply: (answer: FormAnswer) => Promise<void>;
+  /**
+   * Decline the form.
+   *
+   * V2 has no form-reject endpoint; this maps to `session.form.cancel`, which
+   * is the nearest available equivalent and does surface server-side (as a
+   * `form.cancelled` event) rather than failing silently.
+   */
+  cancel: () => Promise<void>;
+  /** Hide the banner locally without telling the server anything. */
   dismiss: () => void;
+  /** `true` while a reply or cancel is in flight. */
+  busy: boolean;
+  /** Last failure message, or `null`. */
+  error: string | null;
+  clearError: () => void;
 }
 
 const QuestionContext = createContext<QuestionContextValue | undefined>(
@@ -29,95 +45,117 @@ const QuestionContext = createContext<QuestionContextValue | undefined>(
 );
 
 export function QuestionProvider({ children }: { children: ReactNode }) {
-  const { config, authHeader, activeDirectory, eventBus, client } =
-    useConnection();
-  const [pending, setPending] = useState<PendingQuestion | null>(null);
+  const { activeDirectory, eventBus, client: v2Client } = useConnection();
+  const [pending, setPending] = useState<PendingForm | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!client || !eventBus) return;
+    if (!v2Client || !eventBus) return;
 
-    const unsubscribe = eventBus.onEvent((event: unknown) => {
-      const typed = event as {
-        type: string;
-        properties?: Record<string, unknown>;
-      };
-      const resolved = isQuestionResolvedEvent(typed);
+    const unsubscribe = eventBus.onEvent((event) => {
+      // `form.replied` and `form.cancelled` both take the form off the list.
+      const resolved = parseFormResolvedEvent(event);
       if (resolved) {
         setPending((current) => (current?.id === resolved.id ? null : current));
         return;
       }
-      const question = parseQuestionEvent(typed);
-      if (question) {
-        setPending(question);
+      const form = parseFormEvent(event);
+      if (form) {
+        setPending(form);
       }
     });
 
     return unsubscribe;
-  }, [client, eventBus]);
+  }, [v2Client, eventBus]);
 
+  // Rehydrate on mount / on location change so a form raised while the app was
+  // backgrounded is still shown. A failure here is not worth surfacing: the
+  // event stream still delivers anything raised from here on.
   useEffect(() => {
-    if (!config?.baseUrl || !client) {
-      return;
-    }
+    if (!v2Client) return;
 
     let cancelled = false;
-    void listPendingQuestions(config.baseUrl, authHeader, activeDirectory).then(
-      (items) => {
-        if (!cancelled && items[0]) {
-          setPending(items[0]);
-        }
-      },
-    );
+    void listPendingForms(v2Client, activeDirectory)
+      .then((items) => {
+        const first = items[0];
+        if (cancelled || !first) return;
+        setPending((current) => current ?? first);
+      })
+      .catch(() => {
+        // Swallowed on purpose; see above.
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [activeDirectory, authHeader, client, config]);
+  }, [v2Client, activeDirectory]);
 
   const reply = useCallback(
-    async (answers: string[][]) => {
-      if (!config?.baseUrl || !pending) {
+    async (answer: FormAnswer) => {
+      if (!v2Client || !pending) {
         return;
       }
-      await replyToQuestion(
-        config.baseUrl,
-        authHeader,
-        pending.id,
-        answers,
-        activeDirectory,
-      );
-      setPending(null);
+      setBusy(true);
+      setError(null);
+      try {
+        await replyToForm(v2Client, {
+          sessionId: pending.sessionId,
+          formId: pending.id,
+          answer,
+        });
+        setPending(null);
+      } catch (replyError) {
+        setError(toOpenCodeError(replyError).message);
+        throw replyError;
+      } finally {
+        setBusy(false);
+      }
     },
-    [activeDirectory, authHeader, config, pending],
+    [pending, v2Client],
   );
 
-  const reject = useCallback(async () => {
-    if (!config?.baseUrl || !pending) {
+  const cancel = useCallback(async () => {
+    if (!v2Client || !pending) {
       return;
     }
-    await rejectQuestion(
-      config.baseUrl,
-      authHeader,
-      pending.id,
-      activeDirectory,
-    );
-    setPending(null);
-  }, [activeDirectory, authHeader, config, pending]);
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelForm(v2Client, {
+        sessionId: pending.sessionId,
+        formId: pending.id,
+      });
+      setPending(null);
+    } catch (cancelError) {
+      setError(toOpenCodeError(cancelError).message);
+      throw cancelError;
+    } finally {
+      setBusy(false);
+    }
+  }, [pending, v2Client]);
 
   const dismiss = useCallback(() => {
     setPending(null);
   }, []);
 
-  const visiblePending = client && config?.baseUrl ? pending : null;
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const visiblePending = v2Client ? pending : null;
 
   const value = useMemo(
     () => ({
       pending: visiblePending,
       reply,
-      reject,
+      cancel,
       dismiss,
+      busy,
+      error,
+      clearError,
     }),
-    [dismiss, reject, reply, visiblePending],
+    [busy, cancel, clearError, dismiss, error, reply, visiblePending],
   );
 
   return (

@@ -1,20 +1,34 @@
-import type { Part, ToolPart } from "@/types/opencode";
+import { toolDurationMs, toolOutputText } from "@/types/domain";
+import type { ChatPart, ChatToolPart } from "@/types/domain";
 
 export type PartCategory = "text" | "tool" | "thinking";
 
-export function isToolPart(part: Part): part is ToolPart {
+export function isToolPart(part: ChatPart): part is ChatToolPart {
   return part.type === "tool";
 }
 
-export function isThinkingPart(part: Part): boolean {
-  return part.type === "text" || part.type === "tool" ? false : true;
+export function isReasoningPart(part: ChatPart): boolean {
+  return part.type === "reasoning";
 }
 
-export function isCollapsiblePart(part: Part): boolean {
+/**
+ * Whether a part belongs in the collapsed "thinking" group.
+ *
+ * This is deliberately a closed allowlist. The V1 implementation was written as
+ * a negation (`type === "text" || type === "tool" ? false : true`), which meant
+ * every part type it did not recognise -- including any new one -- silently
+ * rendered as reasoning. V2 only produces text, reasoning and tool content, so
+ * enumerating them keeps an unexpected variant from being mislabelled.
+ */
+export function isThinkingPart(part: ChatPart): boolean {
+  return isReasoningPart(part);
+}
+
+export function isCollapsiblePart(part: ChatPart): boolean {
   return isToolPart(part) || isThinkingPart(part);
 }
 
-export function classifyPart(part: Part): PartCategory {
+export function classifyPart(part: ChatPart): PartCategory {
   if (part.type === "text") {
     return "text";
   }
@@ -24,16 +38,18 @@ export function classifyPart(part: Part): PartCategory {
   return "thinking";
 }
 
-export function getMessageText(parts: Part[]): string {
+export function getMessageText(parts: ChatPart[]): string {
   return parts
     .filter((part) => part.type === "text")
-    .map((part) => ("text" in part ? part.text : ""))
+    .map((part) => part.text)
     .join("\n")
     .trim();
 }
 
-export function formatToolLabel(part: ToolPart): string {
-  const input = (part.state?.input ?? {}) as Record<string, unknown>;
+export function formatToolLabel(part: ChatToolPart): string {
+  // Arguments are only parsed once the tool stops streaming; before that the
+  // partial JSON lives in `rawInput`.
+  const input = part.input ?? {};
   const toolName = part.tool?.toLowerCase() ?? "tool";
 
   switch (toolName) {
@@ -48,24 +64,16 @@ export function formatToolLabel(part: ToolPart): string {
   }
 }
 
-export function formatThinkingLabel(part: Part): string {
+export function formatThinkingLabel(part: ChatPart): string {
   switch (part.type) {
     case "reasoning":
       return "Thinking…";
-    case "step-start":
-      return "Step start";
-    case "step-finish":
-      return "Step finish";
-    case "agent":
-      return "Agent";
-    case "subtask":
-      return "Subtask";
     default:
       return part.type;
   }
 }
 
-export function getPartLabel(part: Part): string {
+export function getPartLabel(part: ChatPart): string {
   if (isToolPart(part)) {
     return formatToolLabel(part);
   }
@@ -73,60 +81,57 @@ export function getPartLabel(part: Part): string {
 }
 
 export function getPartStatus(
-  part: Part,
+  part: ChatPart,
 ): "running" | "completed" | "error" | undefined {
-  if (!("state" in part) || !part.state || typeof part.state !== "object") {
+  if (!isToolPart(part)) {
     return undefined;
   }
-  const status = (part.state as { status?: string }).status;
-  if (status === "running" || status === "pending") {
-    return "running";
+  switch (part.status) {
+    case "streaming":
+    case "running":
+      return "running";
+    case "error":
+      return "error";
+    case "completed":
+      return "completed";
+    default:
+      return undefined;
   }
-  if (status === "error" || status === "failed") {
-    return "error";
-  }
-  if (status === "completed" || status === "done") {
-    return "completed";
-  }
-  return undefined;
 }
 
-export function getToolBody(part: ToolPart): string {
-  const state = part.state;
-  if (!state) {
-    return "";
+export function getToolBody(part: ChatToolPart): string {
+  // V2 replaced V1's single `state.output` string with a structured
+  // `state.content[]`, so render the joined text before falling back to args.
+  const output = toolOutputText(part);
+  if (output) {
+    return output;
   }
-  if ("output" in state && state.output != null) {
-    return typeof state.output === "string"
-      ? state.output
-      : JSON.stringify(state.output, null, 2);
+  if (part.rawInput) {
+    return part.rawInput;
   }
-  if ("input" in state && state.input != null) {
-    return JSON.stringify(state.input, null, 2);
+  if (part.input) {
+    return JSON.stringify(part.input, null, 2);
   }
   return "";
 }
 
-export function getThinkingBody(part: Part): string {
-  if ("text" in part && typeof part.text === "string") {
+export function getThinkingBody(part: ChatPart): string {
+  if (part.type === "reasoning" || part.type === "text") {
     return part.text;
-  }
-  if ("content" in part && typeof part.content === "string") {
-    return part.content;
-  }
-  if ("reasoning" in part && typeof part.reasoning === "string") {
-    return part.reasoning;
   }
   return JSON.stringify(part, null, 2);
 }
 
-export function getThinkingMetadata(part: Part): {
+export function getThinkingMetadata(part: ChatPart): {
   isStreaming: boolean;
   duration: number | null;
   startTime: number | null;
   endTime: number | null;
 } {
-  if (!("state" in part) || !part.state || typeof part.state !== "object") {
+  // V2 moved timestamps off `state` and onto the tool content as
+  // `time.{created, ran, completed}`.
+  const time = "time" in part ? part.time : undefined;
+  if (!time?.created) {
     return {
       isStreaming: false,
       duration: null,
@@ -135,22 +140,12 @@ export function getThinkingMetadata(part: Part): {
     };
   }
 
-  const state = part.state as {
-    status?: string;
-    startTime?: number;
-    endTime?: number;
-    duration?: number;
-  };
+  const duration = isToolPart(part) ? toolDurationMs(part) : undefined;
 
   return {
-    isStreaming:
-      part.state.status === "running" || part.state.status === "pending",
-    duration:
-      state.duration ??
-      (state.endTime && state.startTime
-        ? state.endTime - state.startTime
-        : null),
-    startTime: state.startTime ?? null,
-    endTime: state.endTime ?? null,
+    isStreaming: isToolPart(part) && part.status === "running",
+    duration: duration ?? null,
+    startTime: time.created,
+    endTime: time.completed ?? null,
   };
 }

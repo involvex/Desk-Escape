@@ -8,7 +8,7 @@ import {
   Check,
 } from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
-import type { Part } from "@/types/opencode";
+import type { ChatPart } from "@/types/domain";
 import {
   getThinkingBody,
   getThinkingMetadata,
@@ -16,7 +16,7 @@ import {
 } from "./message-parts";
 
 interface ThinkingPartGroupProps {
-  parts: Part[];
+  parts: ChatPart[];
   defaultCollapsed: boolean;
   autoExpandDuringStream?: boolean;
   showTiming?: boolean;

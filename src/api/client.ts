@@ -1,6 +1,9 @@
-import type { OpencodeClient, Session } from "@opencode-ai/sdk/client";
-import { createOpencodeClient } from "@opencode-ai/sdk/client";
-import { withDirectoryQuery } from "@/api/directory";
+import { OpenCode } from "@opencode/client";
+import type { OpenCodeClient } from "@opencode/client";
+
+import { withOpenCodeErrors } from "./opencode/errors";
+import { createAuthHeader, createV2Fetch } from "./opencode/transport";
+import { normalizeBaseUrl, withLocation } from "./opencode/location";
 import { bestSession } from "@/utils/session-ranking";
 import type {
   ConnectionConfig,
@@ -10,60 +13,10 @@ import type {
 
 const DEFAULT_PORT = 4096;
 const DEFAULT_USERNAME = "opencode";
-const DEFAULT_TIMEOUT_MS = 15_000;
 
-const clientCache = new Map<string, OpencodeClient>();
+const clientCache = new Map<string, OpenCodeClient>();
 
-function encodeBasicAuth(username: string, password: string): string {
-  const value = `${username}:${password}`;
-  if (typeof globalThis.btoa === "function") {
-    return globalThis.btoa(value);
-  }
-  throw new Error("Base64 encoding is unavailable in this environment.");
-}
-
-export function createAuthHeader(username: string, password: string): string {
-  return `Basic ${encodeBasicAuth(username, password)}`;
-}
-
-function withTimeout(fetchFn: typeof fetch, timeoutMs: number): typeof fetch {
-  return (input: RequestInfo | URL, init?: RequestInit) => {
-    const controller = new AbortController();
-    const signal = init?.signal
-      ? joinAbortSignals(init.signal, controller.signal)
-      : controller.signal;
-
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    return fetchFn(input, { ...init, signal }).finally(() => {
-      clearTimeout(timer);
-    });
-  };
-}
-
-function joinAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  a.addEventListener("abort", onAbort, { once: true });
-  b.addEventListener("abort", onAbort, { once: true });
-  return controller.signal;
-}
-
-function createAuthenticatedFetch(
-  username: string,
-  password: string,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): typeof fetch {
-  const authorization = createAuthHeader(username, password);
-
-  const baseFetch: typeof fetch = (input, init) => {
-    const headers = new Headers(init?.headers);
-    headers.set("Authorization", authorization);
-    return fetch(input, { ...init, headers });
-  };
-
-  return timeoutMs > 0 ? withTimeout(baseFetch, timeoutMs) : baseFetch;
-}
+export { createAuthHeader };
 
 export function parseTarget(input: string): ParsedTarget {
   const trimmed = input.trim();
@@ -118,23 +71,32 @@ export function getClientCacheKey(config: ConnectionConfig): string {
   return `${config.baseUrl}:${config.username}:${config.useAuth}`;
 }
 
+/**
+ * Create (or reuse) a V2 client for a connection.
+ *
+ * `OpenCode.make` is the only browser-safe entry point in `@opencode/client`:
+ * it takes `{ baseUrl, fetch, headers }` and nothing else. There is no auth
+ * option and no `responseStyle` -- V2 throws on failure and returns data
+ * directly.
+ */
 export function createAuthenticatedClient(
   config: ConnectionConfig,
   password?: string,
-): OpencodeClient {
+): OpenCodeClient {
   const cacheKey = `${getClientCacheKey(config)}:${password ?? ""}`;
   const cached = clientCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const client = createOpencodeClient({
-    baseUrl: config.baseUrl,
-    responseStyle: "fields",
-    fetch:
-      config.useAuth && password
-        ? createAuthenticatedFetch(config.username, password)
-        : undefined,
+  const baseUrl = normalizeBaseUrl(config.baseUrl);
+  const useAuth = Boolean(config.useAuth && password);
+
+  const client = OpenCode.make({
+    baseUrl,
+    fetch: useAuth
+      ? createV2Fetch({ username: config.username, password: password! })
+      : undefined,
   });
 
   clientCache.set(cacheKey, client);
@@ -155,74 +117,143 @@ export function clearClientCache(config?: ConnectionConfig): void {
   }
 }
 
+export interface PairingChallenge {
+  code: string;
+  expiresInSeconds: number;
+}
+
+export interface PairingToken {
+  /**
+   * The session token, which is used as the HTTP Basic **password**. The
+   * username stays the server's configured username (default `opencode`).
+   */
+  token: string;
+}
+
+/**
+ * Step 1 of pairing: ask the server for a short-lived code the user can enter
+ * on this device.
+ */
+export async function createPairingCode(
+  config: ConnectionConfig,
+  password?: string,
+): Promise<PairingChallenge> {
+  const client = createAuthenticatedClient(config, password);
+  const result = await withOpenCodeErrors(() => client.server.pair());
+  return { code: result.code, expiresInSeconds: result.expires_in };
+}
+
+/**
+ * Step 2 of pairing: redeem the code for a session token.
+ */
+export async function redeemPairingCode(
+  config: ConnectionConfig,
+  code: string,
+): Promise<PairingToken> {
+  // Redeeming happens against an unauthenticated client: the code *is* the
+  // credential, and the server deliberately skips its credential check for
+  // `/auth/connect/{code}`.
+  const client = OpenCode.make({ baseUrl: normalizeBaseUrl(config.baseUrl) });
+  const result = await withOpenCodeErrors(() =>
+    client.server.connect({ code: code.trim() }),
+  );
+  return { token: result.token };
+}
+
+/**
+ * Verify a server is reachable and actually usable.
+ *
+ * `GET /api/info` alone is not enough: a host can answer it while rejecting or
+ * misrouting everything else. So probe `/api/info` for a version, then issue a
+ * real list call to confirm the session endpoints work and the credentials are
+ * accepted.
+ */
 export async function testConnection(
   config: ConnectionConfig,
   password?: string,
 ): Promise<HealthResult> {
   const client = createAuthenticatedClient(config, password);
-  try {
-    const configResult = await client.config.get();
-    if (configResult.error) {
-      throw new Error(
-        configResult.error instanceof Error
-          ? configResult.error.message
-          : "OpenCode server returned an error.",
-      );
-    }
-    return { healthy: Boolean(configResult.data) };
-  } catch (error) {
-    if (error instanceof Error) throw error;
-    throw new Error("Network request failed.");
-  }
+
+  return withOpenCodeErrors(async () => {
+    const info = await client.server.info();
+
+    await client.session.list({ limit: 1 });
+
+    return { healthy: true, version: info.version };
+  });
 }
 
+/**
+ * Resolve the session to chat in, creating one only when necessary.
+ *
+ * Note the location handling: session endpoints take no `location` parameter.
+ * Scoping happens at creation time, so a session created without a `location`
+ * lands in the server's default directory and later reads fail from the wrong
+ * scope.
+ */
 export async function ensureSession(
-  client: OpencodeClient,
+  client: OpenCodeClient,
   preferredSessionId?: string,
   directory?: string | null,
-): Promise<Session> {
-  const dirQuery = withDirectoryQuery(directory);
-
-  if (preferredSessionId) {
-    const preferred = await client.session.get({
-      path: { id: preferredSessionId },
-      ...dirQuery,
-    });
-    if (preferred.data) {
-      return preferred.data;
+): Promise<Awaited<ReturnType<OpenCodeClient["session"]["get"]>>> {
+  return withOpenCodeErrors(async () => {
+    if (preferredSessionId) {
+      try {
+        return await client.session.get({ sessionID: preferredSessionId });
+      } catch {
+        // Fall through to picking or creating one.
+      }
     }
-  }
 
-  const sessions = await client.session.list(dirQuery);
-  const existing = bestSession(sessions.data ?? []);
+    // `session.list` filters by project/location using plain strings, unlike the
+    // location-scoped endpoints that take a `location` object.
+    const sessions = await client.session.list({
+      ...(directory ? { directory } : {}),
+    });
+    const existing = bestSession(
+      sessions.data as Parameters<typeof bestSession>[0],
+    );
 
-  if (existing) {
-    return existing;
-  }
+    if (existing) {
+      return existing as Awaited<ReturnType<OpenCodeClient["session"]["get"]>>;
+    }
 
-  const created = await client.session.create({
-    ...dirQuery,
-    body: { title: "Desk Escape" },
+    return client.session.create({
+      title: "Desk Escape",
+      ...(directory ? { location: { directory } } : {}),
+    });
   });
-
-  if (!created.data) {
-    throw new Error("Failed to create an OpenCode session.");
-  }
-
-  return created.data;
 }
 
+/**
+ * V2 removed `project.current()`. The closest equivalent is `location.get()`,
+ * which resolves the requested location (or the server default) together with
+ * the owning project.
+ */
 export async function fetchCurrentProject(
-  client: OpencodeClient,
+  client: OpenCodeClient,
   directory?: string | null,
 ) {
-  const result = await client.project.current(withDirectoryQuery(directory));
-  return result.data ?? null;
+  return withOpenCodeErrors(async () => {
+    const result = await client.location.get(withLocation(directory));
+    return {
+      worktree: result.directory,
+      id: result.project.id,
+      directory: result.project.directory,
+    };
+  });
 }
 
-export async function fetchProjectList(client: OpencodeClient) {
-  const result = await client.project.list();
-  return result.data ?? [];
+export async function fetchProjectList(client: OpenCodeClient) {
+  const projects = await withOpenCodeErrors(() => client.project.list());
+  // V2 projects have no `worktree` field; `canonical` holds the project root
+  // directory, which is what the project pickers switch on.
+  return projects.map((project) => ({
+    id: project.id,
+    name: project.name,
+    vcs: project.vcs,
+    worktree: project.canonical,
+  }));
 }
 
 export function getWorktreeName(worktree?: string | null): string {

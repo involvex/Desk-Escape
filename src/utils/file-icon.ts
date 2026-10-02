@@ -9,6 +9,7 @@ import {
   Image,
   Settings,
 } from "lucide-react-native";
+import type { FileEntry } from "@/types/domain";
 
 const codeExtensions = new Set([
   "ts",
@@ -58,10 +59,15 @@ export function getFileExtension(name: string): string {
   return name.slice(dot + 1).toLowerCase();
 }
 
-export function getFileIcon(
-  name: string,
-  type: "file" | "directory",
-): LucideIcon {
+/**
+ * Pick an icon for a directory entry.
+ *
+ * `type` is keyed off the domain {@link FileEntry["type"]}, which in V2 mirrors
+ * the wire `FileSystemEntry.type` union exactly (`"file" | "directory"`) — no
+ * widening is needed. The extension checks below remain useful because V2
+ * dropped the richer V1 node and hands over a bare path.
+ */
+export function getFileIcon(name: string, type: FileEntry["type"]): LucideIcon {
   if (type === "directory") {
     return Folder;
   }

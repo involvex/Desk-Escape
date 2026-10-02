@@ -9,17 +9,30 @@ import {
   TextInput,
 } from "react-native";
 import { ChevronDown, Check, Search, Filter } from "lucide-react-native";
-import { useModels } from "@/api/hooks";
+import {
+  useCurrentModel,
+  useModels,
+  useProviders,
+  useSwitchModel,
+} from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
-import type { Model, Provider } from "@opencode-ai/sdk/client";
+import type { Model } from "@/types/domain";
 
 interface ModelPickerProps {
   onClose: () => void;
   visible: boolean;
+  /**
+   * Fallback highlight keys, used only until `useCurrentModel` resolves. The
+   * authoritative "what is this session using" answer comes from the hook.
+   */
   currentProviderId?: string | null;
   currentModelId?: string | null;
-  onSelectModel: (providerId: string, modelId: string, model: Model) => void;
+  /**
+   * Optional local-state notification. The server is already switched by the
+   * time this fires, so callers that only care about the server can omit it.
+   */
+  onSelectModel?: (providerId: string, modelId: string, model: Model) => void;
 }
 
 type CapabilityFilter =
@@ -37,21 +50,61 @@ const CAPABILITY_FILTERS: {
   { key: "attachments", label: "Attachments", icon: Filter },
 ];
 
+/**
+ * V2 reports modalities as a string list on `capabilities.input` rather than
+ * V1's `{ image, audio, ... }` booleans.
+ */
+function supportsImage(model: Model): boolean {
+  return model.capabilities.input.includes("image");
+}
+
 function modelHasCapability(model: Model, filter: CapabilityFilter): boolean {
   switch (filter) {
     case "all":
       return true;
     case "reasoning":
-      return model.capabilities.reasoning === true;
+      return model.capabilities.reasoning;
     case "tools":
-      return model.capabilities.toolcall === true;
+      return model.capabilities.toolCall;
     case "vision":
-      return model.capabilities.input.image === true;
+      return supportsImage(model);
     case "attachments":
-      return model.capabilities.attachment === true;
+      return model.capabilities.attachment;
     default:
       return true;
   }
+}
+
+/**
+ * A model is selectable when the provider has it switched on and it is not
+ * retired. V2 splits these into two independent fields: `enabled` is the
+ * config-level toggle, `status` is the provider's own maturity label.
+ */
+function isSelectable(model: Model): boolean {
+  return model.enabled && model.status !== "deprecated";
+}
+
+/**
+ * Match a listed model against the session's current model.
+ *
+ * V2's `ModelInfo.id` and `ModelInfo.modelID` are separate fields, so the
+ * session's reference can carry either one depending on which the server
+ * recorded. Both are accepted, and the provider must agree either way.
+ */
+function isSameModel(
+  model: Model,
+  current: Model | null,
+  fallbackId?: string | null,
+) {
+  if (current) {
+    if (current.providerID !== model.providerID) return false;
+    return (
+      current.id === model.id ||
+      (current.modelID !== undefined && current.modelID === model.modelID)
+    );
+  }
+  if (!fallbackId) return false;
+  return fallbackId === model.id || fallbackId === model.modelID;
 }
 
 export function ModelPicker({
@@ -61,70 +114,88 @@ export function ModelPicker({
   currentModelId,
   onSelectModel,
 }: ModelPickerProps) {
-  const { providerType } = useConnection();
+  const { providerType, sessionId } = useConnection();
   const { colors } = useTheme();
-  const { data: providers = {}, isLoading } = useModels();
+  const { data: models = [], isLoading } = useModels();
+  const { data: providers = [] } = useProviders();
+  const { data: sessionModel = null } = useCurrentModel(sessionId);
+  const switchModel = useSwitchModel();
   const [searchQuery, setSearchQuery] = useState("");
   const [capabilityFilter, setCapabilityFilter] =
     useState<CapabilityFilter>("all");
 
-  const filteredModels = useMemo(() => {
-    const result: {
-      providerId: string;
-      provider: Provider;
-      modelId: string;
-      model: Model;
-    }[] = [];
-
-    for (const [providerId, provider] of Object.entries(providers)) {
-      if (!provider.models) continue;
-
-      for (const [modelId, model] of Object.entries(provider.models)) {
-        if (model.status === "deprecated") continue;
-
-        const matchesSearch =
-          model.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          modelId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          provider.name.toLowerCase().includes(searchQuery.toLowerCase());
-
-        const matchesCapability = modelHasCapability(model, capabilityFilter);
-
-        if (matchesSearch && matchesCapability) {
-          result.push({ providerId, provider, modelId, model });
-        }
-      }
+  // Provider display names, so the group headers are not just raw ids.
+  const providerNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const provider of providers) {
+      names.set(provider.id, provider.name || provider.id);
     }
+    return names;
+  }, [providers]);
 
-    return result;
-  }, [providers, searchQuery, capabilityFilter]);
+  const filteredModels = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return models.filter((model) => {
+      if (!isSelectable(model)) return false;
 
-  const handleSelect = useCallback(
-    (providerId: string, modelId: string, model: Model) => {
-      onSelectModel(providerId, modelId, model);
-      onClose();
-    },
-    [onSelectModel, onClose],
-  );
+      if (query) {
+        const haystack = [
+          model.name,
+          model.id,
+          model.modelID ?? "",
+          model.providerID,
+          model.family ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+
+      return modelHasCapability(model, capabilityFilter);
+    });
+  }, [models, searchQuery, capabilityFilter]);
 
   const groupedByProvider = useMemo(() => {
-    const groups: Record<
-      string,
-      { provider: Provider; models: typeof filteredModels }
-    > = {};
-    for (const item of filteredModels) {
-      let group = groups[item.providerId];
+    const groups = new Map<string, { label: string; models: Model[] }>();
+    for (const model of filteredModels) {
+      let group = groups.get(model.providerID);
       if (!group) {
-        group = { provider: item.provider, models: [] };
-        groups[item.providerId] = group;
+        group = {
+          label: providerNames.get(model.providerID) ?? model.providerID,
+          models: [],
+        };
+        groups.set(model.providerID, group);
       }
-      group.models.push(item);
+      group.models.push(model);
     }
-    return groups;
-  }, [filteredModels]);
+    // Sort groups by label; sort within a group by name so the list is stable
+    // regardless of the order the server returned.
+    return [...groups.entries()]
+      .map(([providerId, group]) => ({
+        providerId,
+        ...group,
+        models: [...group.models].sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredModels, providerNames]);
+
+  const handleSelect = useCallback(
+    (model: Model) => {
+      if (!sessionId) return;
+
+      // V2 removed `model` from the prompt body: the session's model is
+      // changed out-of-band and picked up by the next turn.
+      switchModel.mutate({ model });
+      onSelectModel?.(model.providerID, model.id, model);
+      onClose();
+    },
+    [sessionId, switchModel, onSelectModel, onClose],
+  );
 
   if (!visible) return null;
 
   const isOpenCode = providerType === "opencode";
+  const switchError = switchModel.error;
 
   return (
     <View style={styles.overlay} onStartShouldSetResponder={() => true}>
@@ -140,6 +211,12 @@ export function ModelPicker({
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
               Model switching is only available for OpenCode provider.
+            </Text>
+          </View>
+        ) : !sessionId ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyText}>
+              No active session. Start or pick a session to switch models.
             </Text>
           </View>
         ) : (
@@ -205,93 +282,120 @@ export function ModelPicker({
                 style={styles.list}
                 showsVerticalScrollIndicator={false}
               >
-                {Object.entries(groupedByProvider).map(
-                  ([providerId, group]) => (
+                {groupedByProvider.map(
+                  ({ providerId, label, models: group }) => (
                     <View key={providerId} style={styles.providerGroup}>
-                      <Text style={styles.providerLabel}>
-                        {group.provider.name || providerId}
-                      </Text>
-                      {group.models.map(({ modelId, model }) => {
-                        const isCurrent =
-                          providerId === currentProviderId &&
-                          modelId === currentModelId;
+                      <Text style={styles.providerLabel}>{label}</Text>
+                      {group.map((model) => {
+                        // Prefer the server's answer; the props only cover the
+                        // window before `useCurrentModel` has resolved.
+                        const isCurrent = sessionModel
+                          ? isSameModel(model, sessionModel)
+                          : currentProviderId
+                            ? model.providerID === currentProviderId &&
+                              isSameModel(model, null, currentModelId)
+                            : false;
 
                         return (
                           <Pressable
-                            key={modelId}
-                            onPress={() =>
-                              handleSelect(providerId, modelId, model)
-                            }
+                            key={`${model.providerID}/${model.id}`}
+                            onPress={() => handleSelect(model)}
+                            disabled={switchModel.isPending}
                             style={[
                               styles.modelItem,
                               isCurrent && styles.modelItemCurrent,
                             ]}
                           >
-                            <View style={styles.modelMain}>
-                              <View style={styles.modelInfo}>
-                                <Text
-                                  style={[
-                                    styles.modelName,
-                                    isCurrent && styles.modelNameCurrent,
-                                  ]}
-                                >
-                                  {model.name || modelId}
+                            <View style={styles.modelInfo}>
+                              <Text
+                                style={[
+                                  styles.modelName,
+                                  isCurrent && styles.modelNameCurrent,
+                                ]}
+                              >
+                                {model.name || model.id}
+                              </Text>
+                              <View style={styles.modelMeta}>
+                                <Text style={styles.modelMetaText}>
+                                  Context:{" "}
+                                  {formatContextLimit(model.limit.context)}
                                 </Text>
-                                <View style={styles.modelMeta}>
-                                  <Text style={styles.modelMetaText}>
-                                    Context:{" "}
-                                    {formatContextLimit(model.limit.context)}
-                                  </Text>
-                                  <Text style={styles.modelMetaSeparator}>
-                                    ·
-                                  </Text>
-                                  <Text style={styles.modelMetaText}>
-                                    ${model.cost.input.toFixed(2)}/1M in
-                                  </Text>
-                                  <Text style={styles.modelMetaSeparator}>
-                                    ·
-                                  </Text>
-                                  <Text style={styles.modelMetaText}>
-                                    ${model.cost.output.toFixed(2)}/1M out
-                                  </Text>
-                                </View>
-                                <View style={styles.modelCapabilities}>
-                                  {model.capabilities.reasoning && (
-                                    <View style={styles.capabilityBadge}>
-                                      <Text style={styles.capabilityText}>
-                                        Reasoning
-                                      </Text>
-                                    </View>
-                                  )}
-                                  {model.capabilities.toolcall && (
-                                    <View style={styles.capabilityBadge}>
-                                      <Text style={styles.capabilityText}>
-                                        Tools
-                                      </Text>
-                                    </View>
-                                  )}
-                                  {model.capabilities.input.image && (
-                                    <View style={styles.capabilityBadge}>
-                                      <Text style={styles.capabilityText}>
-                                        Vision
-                                      </Text>
-                                    </View>
-                                  )}
-                                  {model.capabilities.attachment && (
-                                    <View style={styles.capabilityBadge}>
-                                      <Text style={styles.capabilityText}>
-                                        Attachments
-                                      </Text>
-                                    </View>
-                                  )}
-                                  {model.capabilities.temperature && (
-                                    <View style={styles.capabilityBadge}>
-                                      <Text style={styles.capabilityText}>
-                                        Temperature
-                                      </Text>
-                                    </View>
-                                  )}
-                                </View>
+                                {model.limit.output ? (
+                                  <>
+                                    <Text style={styles.modelMetaSeparator}>
+                                      ·
+                                    </Text>
+                                    <Text style={styles.modelMetaText}>
+                                      Out:{" "}
+                                      {formatContextLimit(model.limit.output)}
+                                    </Text>
+                                  </>
+                                ) : null}
+                                <Text style={styles.modelMetaSeparator}>·</Text>
+                                <Text style={styles.modelMetaText}>
+                                  {formatCost(model.cost.input)}/1M in
+                                </Text>
+                                <Text style={styles.modelMetaSeparator}>·</Text>
+                                <Text style={styles.modelMetaText}>
+                                  {formatCost(model.cost.output)}/1M out
+                                </Text>
+                              </View>
+                              <View style={styles.modelCapabilities}>
+                                {model.status !== "active" && (
+                                  <View
+                                    style={[
+                                      styles.capabilityBadge,
+                                      styles.statusBadge,
+                                    ]}
+                                  >
+                                    <Text style={styles.statusText}>
+                                      {model.status}
+                                    </Text>
+                                  </View>
+                                )}
+                                {model.capabilities.reasoning && (
+                                  <View style={styles.capabilityBadge}>
+                                    <Text style={styles.capabilityText}>
+                                      Reasoning
+                                    </Text>
+                                  </View>
+                                )}
+                                {model.capabilities.toolCall && (
+                                  <View style={styles.capabilityBadge}>
+                                    <Text style={styles.capabilityText}>
+                                      Tools
+                                    </Text>
+                                  </View>
+                                )}
+                                {supportsImage(model) && (
+                                  <View style={styles.capabilityBadge}>
+                                    <Text style={styles.capabilityText}>
+                                      Vision
+                                    </Text>
+                                  </View>
+                                )}
+                                {model.capabilities.attachment && (
+                                  <View style={styles.capabilityBadge}>
+                                    <Text style={styles.capabilityText}>
+                                      Attachments
+                                    </Text>
+                                  </View>
+                                )}
+                                {model.capabilities.temperature && (
+                                  <View style={styles.capabilityBadge}>
+                                    <Text style={styles.capabilityText}>
+                                      Temperature
+                                    </Text>
+                                  </View>
+                                )}
+                                {model.variants?.length ? (
+                                  <View style={styles.capabilityBadge}>
+                                    <Text style={styles.capabilityText}>
+                                      {model.variants.length} variant
+                                      {model.variants.length === 1 ? "" : "s"}
+                                    </Text>
+                                  </View>
+                                ) : null}
                               </View>
                             </View>
                             {isCurrent && (
@@ -305,6 +409,14 @@ export function ModelPicker({
                 )}
               </ScrollView>
             )}
+
+            {switchError ? (
+              <Text style={styles.errorText}>
+                {switchError instanceof Error
+                  ? switchError.message
+                  : "Could not switch model."}
+              </Text>
+            ) : null}
           </>
         )}
 
@@ -324,6 +436,12 @@ function formatContextLimit(limit: number): string {
     return `${(limit / 1000).toFixed(0)}K`;
   }
   return String(limit);
+}
+
+/** V2 cost is USD per 1M tokens; free tiers report 0 and read better as text. */
+function formatCost(perMillion: number): string {
+  if (!perMillion) return "free";
+  return `$${perMillion.toFixed(2)}`;
 }
 
 const styles = StyleSheet.create({
@@ -425,6 +543,12 @@ const styles = StyleSheet.create({
     color: "#888888",
     textAlign: "center",
   },
+  errorText: {
+    fontSize: 12,
+    color: "#CC3333",
+    marginTop: 8,
+    textAlign: "center",
+  },
   list: {
     maxHeight: 450,
   },
@@ -455,13 +579,6 @@ const styles = StyleSheet.create({
   modelItemCurrent: {
     backgroundColor: "#F0F4FF",
     borderColor: "#D0D8FF",
-  },
-  modelMain: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-    minWidth: 0,
   },
   modelInfo: {
     flex: 1,
@@ -502,10 +619,19 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#E8E8E8",
   },
+  statusBadge: {
+    backgroundColor: "#FDF0D5",
+  },
   capabilityText: {
     fontSize: 10,
     fontWeight: "600",
     color: "#555555",
+    textTransform: "uppercase",
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#8A6100",
     textTransform: "uppercase",
   },
   closeButton: {

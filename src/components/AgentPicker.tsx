@@ -8,17 +8,36 @@ import {
   ScrollView,
 } from "react-native";
 import { ChevronDown, Check } from "lucide-react-native";
-import { useAgents } from "@/api/hooks";
+import { useAgents, useCurrentAgent, useSwitchAgent } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
-import type { Agent } from "@opencode-ai/sdk/client";
+import type { Agent } from "@/types/domain";
 
 interface AgentPickerProps {
   onClose: () => void;
   visible: boolean;
+  /**
+   * Fallback highlight key, used only until `useCurrentAgent` resolves. V2's
+   * `AgentInfo.id` is what the hook returns as `Agent.name`.
+   */
   currentAgentKey?: string | null;
-  onSelectAgent: (agentKey: string, agent: Agent) => void;
+  /**
+   * Optional local-state notification. The server is already switched by the
+   * time this fires, so callers that only care about the server can omit it.
+   */
+  onSelectAgent?: (agentKey: string, agent: Agent) => void;
 }
+
+/**
+ * V2 agents are a flat list with an explicit `mode`, so the list is ordered
+ * rather than grouped: `primary` agents are what a user drives a session with,
+ * `subagent` agents are invoked by other agents, and `all` fits either.
+ */
+const MODE_ORDER: Record<Agent["mode"], number> = {
+  primary: 0,
+  all: 1,
+  subagent: 2,
+};
 
 export function AgentPicker({
   onClose,
@@ -26,21 +45,38 @@ export function AgentPicker({
   currentAgentKey,
   onSelectAgent,
 }: AgentPickerProps) {
-  const { providerType } = useConnection();
+  const { providerType, sessionId } = useConnection();
   const { colors } = useTheme();
-  const { data: agents = {}, isLoading } = useAgents();
+  const { data: agents = [], isLoading } = useAgents();
+  const { data: sessionAgent = null } = useCurrentAgent(sessionId);
+  const switchAgent = useSwitchAgent();
 
-  const agentEntries = useMemo(
-    () => Object.entries(agents).filter(([, v]) => v !== undefined),
+  // `hidden` agents stay out of the picker but are still callable by the
+  // server, so filtering here is purely a presentation decision.
+  const visibleAgents = useMemo(
+    () =>
+      agents
+        .filter((agent) => !agent.hidden)
+        .slice()
+        .sort(
+          (a, b) =>
+            (MODE_ORDER[a.mode] ?? 3) - (MODE_ORDER[b.mode] ?? 3) ||
+            a.name.localeCompare(b.name),
+        ),
     [agents],
   );
 
   const handleSelect = useCallback(
-    (agentKey: string, agent: Agent) => {
-      onSelectAgent(agentKey, agent);
+    (agent: Agent) => {
+      if (!sessionId) return;
+
+      // V2 removed `agent` from the prompt body; the session's agent is
+      // changed out-of-band via `session.switchAgent`.
+      switchAgent.mutate({ agent: agent.name });
+      onSelectAgent?.(agent.name, agent);
       onClose();
     },
-    [onSelectAgent, onClose],
+    [sessionId, switchAgent, onSelectAgent, onClose],
   );
 
   if (!visible) return null;
@@ -61,6 +97,25 @@ export function AgentPicker({
     );
   }
 
+  if (!sessionId) {
+    return (
+      <View style={styles.overlay}>
+        <View style={styles.modal}>
+          <Text style={styles.title}>Select Agent</Text>
+          <Text style={styles.emptyText}>
+            No active session. Start or pick a session to switch agents.
+          </Text>
+          <Pressable onPress={onClose} style={styles.closeButton}>
+            <Text style={styles.closeText}>Close</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  const activeName = sessionAgent?.name ?? currentAgentKey ?? null;
+  const switchError = switchAgent.error;
+
   return (
     <View style={styles.overlay} onStartShouldSetResponder={() => true}>
       <View style={styles.modal}>
@@ -76,7 +131,7 @@ export function AgentPicker({
             <ActivityIndicator color={colors.accent} size="large" />
             <Text style={styles.loadingText}>Loading agents...</Text>
           </View>
-        ) : agentEntries.length === 0 ? (
+        ) : visibleAgents.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
               No agents configured. Add agents in OpenCode config.
@@ -84,14 +139,15 @@ export function AgentPicker({
           </View>
         ) : (
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-            {agentEntries.map(([key, agent]) => {
-              const isCurrent = key === currentAgentKey;
+            {visibleAgents.map((agent) => {
+              const isCurrent = activeName === agent.name;
               const agentColor = agent.color || colors.accent;
 
               return (
                 <Pressable
-                  key={key}
-                  onPress={() => handleSelect(key, agent)}
+                  key={agent.name}
+                  onPress={() => handleSelect(agent)}
+                  disabled={switchAgent.isPending}
                   style={[
                     styles.agentItem,
                     isCurrent && styles.agentItemCurrent,
@@ -112,7 +168,7 @@ export function AgentPicker({
                           isCurrent && styles.agentNameCurrent,
                         ]}
                       >
-                        {agent.name || key}
+                        {agent.name}
                       </Text>
                       {agent.description && (
                         <Text style={styles.agentDescription}>
@@ -120,14 +176,20 @@ export function AgentPicker({
                         </Text>
                       )}
                       <View style={styles.agentMeta}>
-                        <Text style={styles.agentMetaText}>
-                          {agent.mode || "primary"}
-                        </Text>
+                        <Text style={styles.agentMetaText}>{agent.mode}</Text>
+                        {/*
+                          V2 makes `model` a `ModelRef` object rather than the
+                          `"provider/model"` string V1 carried, so the parts are
+                          read off the ref instead of being split.
+                        */}
                         {agent.model && (
                           <>
                             <Text style={styles.agentMetaSeparator}>·</Text>
                             <Text style={styles.agentMetaText}>
                               {agent.model.providerID}/{agent.model.modelID}
+                              {agent.model.variant
+                                ? `#${agent.model.variant}`
+                                : ""}
                             </Text>
                           </>
                         )}
@@ -140,6 +202,14 @@ export function AgentPicker({
             })}
           </ScrollView>
         )}
+
+        {switchError ? (
+          <Text style={styles.errorText}>
+            {switchError instanceof Error
+              ? switchError.message
+              : "Could not switch agent."}
+          </Text>
+        ) : null}
 
         <Pressable onPress={onClose} style={styles.closeButton}>
           <Text style={styles.closeText}>Cancel</Text>
@@ -202,6 +272,12 @@ const styles = StyleSheet.create({
     color: "#888888",
     textAlign: "center",
   },
+  errorText: {
+    fontSize: 12,
+    color: "#CC3333",
+    marginTop: 8,
+    textAlign: "center",
+  },
   list: {
     maxHeight: 400,
   },
@@ -219,7 +295,6 @@ const styles = StyleSheet.create({
   },
   agentItemCurrent: {
     backgroundColor: "#F8F9FA",
-    borderLeftColor: "inherit",
   },
   agentMain: {
     flexDirection: "row",

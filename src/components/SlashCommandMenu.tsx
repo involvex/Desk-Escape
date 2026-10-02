@@ -1,4 +1,4 @@
-import type { Command } from "@opencode-ai/sdk/client";
+import type { Command } from "@/types/domain";
 import { useMemo } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "@/context/ThemeContext";

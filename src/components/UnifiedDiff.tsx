@@ -1,3 +1,4 @@
+import type { OpenCodeClient } from "@opencode/client";
 import { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -15,9 +16,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { X } from "lucide-react-native";
 import { useQuery } from "@tanstack/react-query";
+import { toFileDiffEntry } from "@/api/opencode/adapter";
+import { toOpenCodeError } from "@/api/opencode/errors";
+import { withLocation } from "@/api/opencode/location";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
-import { useFileStatus } from "@/api/hooks";
 import type { DiffHunk, DiffLine, FileDiffEntry } from "@/types/opencode";
 
 interface UnifiedDiffProps {
@@ -25,32 +28,88 @@ interface UnifiedDiffProps {
   onClose: () => void;
 }
 
-function parseDiff(diff: string): DiffHunk[] {
-  const hunks: DiffHunk[] = [];
-  const lines = diff.split("\n");
-  let current: DiffHunk | null = null;
+/**
+ * Errors that mean "this host cannot serve diffs", as opposed to "the request
+ * failed". `vcs.*` is absent on a workspace that is not a git repository, and a
+ * server older than the diff endpoints answers 404. Neither is worth surfacing
+ * as a failure — the panel just stays empty.
+ */
+function isMissingDiffSupport(error: unknown): boolean {
+  const kind = toOpenCodeError(error).kind;
+  return kind === "not-found" || kind === "invalid-request";
+}
 
-  for (const line of lines) {
-    if (line.startsWith("@@")) {
-      current = { header: line, lines: [] };
-      hunks.push(current);
-      continue;
+async function loadWorkspaceDiff(
+  client: OpenCodeClient,
+  directory: string | null,
+): Promise<FileDiffEntry[]> {
+  try {
+    const result = await client.vcs.diff({
+      ...withLocation(directory),
+      // "working" is the uncommitted working-tree diff, which is what this panel
+      // showed in V1. V2 also offers "branch" and "committed".
+      mode: "working",
+    });
+    return result.data.map(toFileDiffEntry);
+  } catch (error) {
+    if (isMissingDiffSupport(error)) {
+      return [];
     }
-
-    if (!current) {
-      continue;
-    }
-
-    if (line.startsWith("+")) {
-      current.lines.push({ type: "add", content: line.slice(1) });
-    } else if (line.startsWith("-")) {
-      current.lines.push({ type: "remove", content: line.slice(1) });
-    } else if (line.startsWith(" ")) {
-      current.lines.push({ type: "context", content: line.slice(1) });
-    }
+    throw error;
   }
+}
 
-  return hunks;
+/**
+ * Diff the session produced, used when the workspace has no VCS to diff against
+ * (or when that VCS is too old to expose `vcs.diff`).
+ */
+async function loadSessionDiff(
+  client: OpenCodeClient,
+  sessionId: string,
+): Promise<FileDiffEntry[]> {
+  try {
+    // Session endpoints are fixed to the location the session was created in
+    // and reject a `location` argument outright, so none is passed here.
+    const result = await client.session.diff({ sessionID: sessionId });
+    return result.map(toFileDiffEntry);
+  } catch (error) {
+    if (isMissingDiffSupport(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Workspace changes, with the active session's diff as a fallback.
+ *
+ * V1 exposed a diff through `file.read(...).data.diff`; that field is gone in
+ * V2 — `file.read` now returns raw bytes and diffs live on `vcs.diff` /
+ * `session.diff`. V2 also throws instead of returning `{ data, error }`, so
+ * both branches are handled explicitly rather than by inspecting `.error`.
+ */
+function useWorkspaceDiff() {
+  const { client: rawClient, activeDirectory, sessionId } = useConnection();
+  // The connection context still carries the pre-migration client type; narrow
+  // it to the V2 surface this panel depends on.
+  const client: OpenCodeClient | null = rawClient;
+
+  return useQuery({
+    enabled: Boolean(client),
+    queryKey: ["workspace-diff", activeDirectory ?? "default", sessionId],
+    queryFn: async (): Promise<FileDiffEntry[]> => {
+      if (!client) {
+        return [];
+      }
+
+      const workspace = await loadWorkspaceDiff(client, activeDirectory);
+      if (workspace.length > 0 || !sessionId) {
+        return workspace;
+      }
+
+      return loadSessionDiff(client, sessionId);
+    },
+  });
 }
 
 function getLineVisual(
@@ -76,39 +135,14 @@ function getLineVisual(
   }
 }
 
-function useWorkspaceDiff() {
-  const { client } = useConnection();
-  const { data: changedFiles = [] } = useFileStatus();
-
-  return useQuery({
-    enabled: Boolean(client && changedFiles.length > 0),
-    queryKey: ["workspace-diff", changedFiles.map((file) => file.path)],
-    queryFn: async (): Promise<FileDiffEntry[]> => {
-      if (!client) {
-        return [];
-      }
-
-      const entries = await Promise.all(
-        changedFiles.map(async (file) => {
-          const result = await client.file.read({
-            query: { path: file.path },
-          });
-          const diff = result.data?.diff ?? "";
-          return {
-            path: file.path,
-            hunks: diff ? parseDiff(diff) : [],
-          };
-        }),
-      );
-
-      return entries;
-    },
-  });
-}
-
 export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
   const { colors, spacing, typography } = useTheme();
-  const { data: fileDiffs = [], isLoading, refetch } = useWorkspaceDiff();
+  const {
+    data: fileDiffs = [],
+    error,
+    isLoading,
+    refetch,
+  } = useWorkspaceDiff();
   const { width: screenWidth } = useWindowDimensions();
   const translateX = useSharedValue(screenWidth);
 
@@ -185,6 +219,14 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
     });
   }, [visible, screenWidth, translateX]);
 
+  // A patch can legitimately be absent for binary files, so an empty hunk list
+  // is reported per file rather than treated as a failure.
+  const message = error
+    ? toOpenCodeError(error).message
+    : fileDiffs.length === 0
+      ? "No tracked changes returned by the host workspace."
+      : null;
+
   return (
     <>
       {visible ? <Pressable onPress={onClose} style={styles.backdrop} /> : null}
@@ -203,39 +245,32 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
           <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />
         ) : (
           <ScrollView>
-            {fileDiffs.length === 0 ? (
-              <Text style={styles.empty}>
-                No tracked changes returned by the host workspace.
-              </Text>
-            ) : (
-              fileDiffs.map((file) => (
-                <View key={file.path} style={{ paddingHorizontal: spacing.md }}>
-                  <Text style={styles.fileTitle}>{file.path}</Text>
-                  {file.hunks.length === 0 ? (
-                    <Text style={styles.empty}>
-                      No patch content available.
-                    </Text>
-                  ) : (
-                    file.hunks.map((hunk) => (
-                      <View key={`${file.path}-${hunk.header}`}>
-                        <Text style={styles.hunkHeader}>{hunk.header}</Text>
-                        {hunk.lines.map((line, index) => {
-                          const visual = getLineVisual(line.type, colors);
-                          return (
-                            <Text
-                              key={`${hunk.header}-${index}`}
-                              style={[styles.line, visual]}
-                            >
-                              {`${line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}${line.content}`}
-                            </Text>
-                          );
-                        })}
-                      </View>
-                    ))
-                  )}
-                </View>
-              ))
-            )}
+            {message ? <Text style={styles.empty}>{message}</Text> : null}
+            {fileDiffs.map((file) => (
+              <View key={file.path} style={{ paddingHorizontal: spacing.md }}>
+                <Text style={styles.fileTitle}>{file.path}</Text>
+                {file.hunks.length === 0 ? (
+                  <Text style={styles.empty}>No patch content available.</Text>
+                ) : (
+                  file.hunks.map((hunk: DiffHunk) => (
+                    <View key={`${file.path}-${hunk.header}`}>
+                      <Text style={styles.hunkHeader}>{hunk.header}</Text>
+                      {hunk.lines.map((line, index) => {
+                        const visual = getLineVisual(line.type, colors);
+                        return (
+                          <Text
+                            key={`${hunk.header}-${index}`}
+                            style={[styles.line, visual]}
+                          >
+                            {`${line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}${line.content}`}
+                          </Text>
+                        );
+                      })}
+                    </View>
+                  ))
+                )}
+              </View>
+            ))}
             <Pressable
               onPress={() => void refetch()}
               style={{ padding: spacing.md }}

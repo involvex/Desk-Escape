@@ -1,4 +1,3 @@
-import type { FileNode } from "@opencode-ai/sdk/client";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -11,9 +10,17 @@ import {
 } from "react-native";
 import { ChevronLeft } from "lucide-react-native";
 import { useFileList } from "@/api/hooks";
+import { toFileEntryList } from "@/api/opencode/adapter";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 import { getFileIcon } from "@/utils/file-icon";
+
+/** Path of the parent of a workspace-relative path; `.` is the root. */
+function parentPath(path: string): string {
+  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  segments.pop();
+  return segments.length ? segments.join("/") : ".";
+}
 
 export function LandscapeFileRail() {
   const { colors, spacing, typography } = useTheme();
@@ -21,7 +28,7 @@ export function LandscapeFileRail() {
   const { width: screenWidth } = useWindowDimensions();
   const [currentPath, setCurrentPath] = useState(".");
   const railWidth = Math.min(Math.max(screenWidth * 0.28, 160), 200);
-  const { data = [], isLoading } = useFileList(currentPath);
+  const { data, isLoading, isError } = useFileList(currentPath);
 
   const styles = useMemo(
     () =>
@@ -76,19 +83,16 @@ export function LandscapeFileRail() {
     [colors, spacing, typography, railWidth],
   );
 
-  const nodes = data as FileNode[];
+  // V2 lists a single directory level per call and returns no nested children,
+  // so `currentPath` is the whole navigation state and each level is its own
+  // query keyed by that path.
+  const nodes = useMemo(() => toFileEntryList(data), [data]);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         {currentPath !== "." ? (
-          <Pressable
-            onPress={() => {
-              const parent = currentPath.replace(/\\/g, "/").split("/");
-              parent.pop();
-              setCurrentPath(parent.length ? parent.join("/") : ".");
-            }}
-          >
+          <Pressable onPress={() => setCurrentPath(parentPath(currentPath))}>
             <ChevronLeft color={colors.text} size={18} />
           </Pressable>
         ) : null}
@@ -105,7 +109,11 @@ export function LandscapeFileRail() {
           data={nodes}
           keyExtractor={(item) => item.path}
           ListEmptyComponent={
-            <Text style={styles.empty}>No files in this directory.</Text>
+            <Text style={styles.empty}>
+              {isError
+                ? "This directory could not be read."
+                : "No files in this directory."}
+            </Text>
           }
           renderItem={({ item }) => {
             const Icon = getFileIcon(item.name, item.type);

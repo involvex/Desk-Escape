@@ -1,4 +1,3 @@
-import type { FileNode } from "@opencode-ai/sdk/client";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,6 +15,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { ChevronLeft } from "lucide-react-native";
 import { useFileList } from "@/api/hooks";
+import { toFileEntryList } from "@/api/opencode/adapter";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
 import { getFileIcon } from "@/utils/file-icon";
@@ -25,6 +25,13 @@ interface FileDrawerProps {
   onClose: () => void;
 }
 
+/** Path of the parent of a workspace-relative path; `.` is the root. */
+function parentPath(path: string): string {
+  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  segments.pop();
+  return segments.length ? segments.join("/") : ".";
+}
+
 export function FileDrawer({ visible, onClose }: FileDrawerProps) {
   const { colors, spacing, typography } = useTheme();
   const { addContextAttachment } = useConnection();
@@ -32,7 +39,7 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
   const [currentPath, setCurrentPath] = useState(".");
   const drawerWidth = Math.min(300, screenWidth * 0.85);
   const translateX = useSharedValue(-drawerWidth);
-  const { data = [], isLoading } = useFileList(currentPath);
+  const { data, isLoading, isError } = useFileList(currentPath);
 
   const styles = useMemo(
     () =>
@@ -106,7 +113,10 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
     });
   }, [visible, translateX, drawerWidth]);
 
-  const nodes = data as FileNode[];
+  // V2's `file.list` returns one flat level of `{ path, type }` with no
+  // children, so the visible list is exactly the current directory's page and
+  // descending means re-querying with the child path.
+  const nodes = useMemo(() => toFileEntryList(data), [data]);
 
   return (
     <>
@@ -117,13 +127,7 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
       >
         <View style={styles.header}>
           {currentPath !== "." ? (
-            <Pressable
-              onPress={() => {
-                const parent = currentPath.replace(/\\/g, "/").split("/");
-                parent.pop();
-                setCurrentPath(parent.length ? parent.join("/") : ".");
-              }}
-            >
+            <Pressable onPress={() => setCurrentPath(parentPath(currentPath))}>
               <ChevronLeft color={colors.text} size={20} />
             </Pressable>
           ) : null}
@@ -138,8 +142,13 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
             data={nodes}
             keyExtractor={(item) => item.path}
             ListEmptyComponent={
+              // A missing directory comes back as a rejected request rather
+              // than an empty list, so distinguish "no such folder" from
+              // "folder is genuinely empty".
               <Text style={styles.empty}>
-                No files found in this directory.
+                {isError
+                  ? "This directory could not be read."
+                  : "No files found in this directory."}
               </Text>
             }
             renderItem={({ item }) => {
