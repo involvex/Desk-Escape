@@ -602,4 +602,60 @@ One survivor taught something: ungating the `enabled:` check was invisible, beca
 
 Upgraded to `setup-android@v4`, whose default is `platform-tools` alone, and **pinned the package list explicitly** so the next action default cannot break the build the same silent way — inheriting that default is what broke it. Also `actions/setup-java@v4` → `@v5`, clearing the Node 20 deprecation warning.
 
-Not yet verified: confirming the build passes needs a push, and nothing here is committed.
+**Verified:** run `37183357142` completed `success`. `build-debug` now gets past SDK setup, prebuild, and the Gradle assemble — so RN 0.86 under `newArchEnabled=true` builds from this checkout at this Windows path, and the failure was entirely the withdrawn `tools` package.
+
+---
+
+## Batch 13 - §5.3 the diff panel
+
+**§5.3 as written asked for per-file revert, apply and discard. That is not implementable, and the reason is worth recording rather than quietly dropping.** Both the SDK and the live server's 116-route OpenAPI expose exactly three revert endpoints, all session-level: `session.revert.unrevert`, `session.revert.stage`, `session.revert.commit`. There is no file or hunk granularity anywhere in the surface. Per-file mutation would mean a new server capability, not a client change.
+
+The mutation axis already exists at the granularity that _is_ available — §4.5's turn-level revert, anchored on the last user message. So §5.3 splits in two, and this batch takes the half that was real: **the diff was unreadable and slow, and said nothing about files git had never seen.**
+
+| Asked for                              | Verdict                                                      |
+| -------------------------------------- | ------------------------------------------------------------ |
+| Per-file revert / apply / discard      | **Not implementable** — no such endpoint, at any granularity |
+| Virtualized line rendering             | Done — `SectionList` over `FlatList`                         |
+| Auto-refresh while open                | Done — `refetchInterval: 15_000`                             |
+| Per-file counts, collapse, filter      | Done                                                         |
+| Show files git has never seen          | Done — reconstructed, see below                              |
+| Turn-level revert (the available axis) | Already shipped in §4.5                                      |
+
+### A new file has no diff, which is why it was invisible
+
+`vcs.diff` cannot report a file git has never seen — there is no patch for it. It is not reported as empty; it is **absent**. So the panel was not omitting new files by accident, it was faithfully rendering what the endpoint sent, and the gap was in the endpoint.
+
+Recovering them takes two more calls: a path is untracked when it is in `file.list` and **absent from** `vcs.status`. V2 dropped the `"untracked"` status entirely, so subtraction is the only way left. Both are issued concurrently — sequentially they would add two round trips to the path that already works.
+
+**Both are required, or neither.** With the listing but no status set, every file in the repository reads as new: the panel would claim thousands of new files when the truth is one. `withListing` treats a partial failure as no reconstruction at all rather than as a partial one.
+
+**An untracked file is labelled "new file" and shows no numbers.** Not `+0 −0` — there is no patch, so no lines were counted, and `+0` is a confident claim about a measurement nobody made.
+
+`withUntracked` returns `{ files, untrackedPaths }` rather than a merged list, because "no hunks" is ambiguous on its own: a mode-only change on a tracked file also arrives with no hunks. A caller given only the list would label it new.
+
+### The panel said nothing about scale, which is what makes it hang
+
+The old panel flattened every hunk of every file into one array, so a 4,000-line diff built 4,000 React elements before virtualization could discard any of them. Now each file is a section and each line a row: collapsed, a file contributes `data: []` and its body is never constructed at all.
+
+### A wrong stub would have shipped a crash
+
+Writing the `SectionList` stub, I gave it a `{ section, data }` wrapper — which is not React Native's shape. RN passes each section **flattened alongside** `data` (`SectionListData<ItemT, SectionT> = SectionT & { data: ItemT[] }`). The panel duly passed flat objects and rendered `undefined` for every header.
+
+This is the argument for the §11.1b stub design in one concrete instance: the fake was the thing that was wrong, and had the stub been more permissive it would have been invisible. Fixed, and the correct shape is now asserted rather than assumed — including a by-index section key, because `String(sectionObject)` is `"[object Object]"` for every one of them.
+
+### Five components had no render coverage at all, for a reason nobody had hit yet
+
+Writing the first `UnifiedDiff` render test surfaced a gap with a much larger blast radius: **`react-native-reanimated` was never mocked.** It reaches `TurboModuleRegistry` at module load, so importing it under Bun threw before a single assertion ran. `ChatScrollBar`, `FileDrawer`, `Snackbar`, `WorkspaceScreen` and `UnifiedDiff` all import it — none had ever been render-testable, which is a coverage hole that looks exactly like a component nobody wanted to test.
+
+`src/testing/reanimated-stub.ts` closes it. Its bargain is **values are real, time is not**: a shared value is a genuinely mutable box and `useAnimatedStyle` genuinely evaluates its worklet, so a component renders its _settled_ state — which is the only state a test can assert on. There is no frame loop, so `withTiming` resolves to its destination instantly and no test may observe motion mid-flight. Asserting on animation would require a fake clock that could only be wrong.
+
+### Two lint findings that were real
+
+- `diff?.files ?? []` in a `useMemo` dependency is a fresh array every render, defeating the memo it feeds. Derived inside the callback instead.
+- Clearing the filter and collapsed set in an effect on `visible` is `setState` after the render that hid the panel — a second render to change state nothing can see. Moved into the close handler, which is the event that actually caused the transition.
+
+### Verification
+
+**1102 tests across 32 files** (from 1048 / 29). New: 28 `diff-view` model, 10 `UnifiedDiff` render, 16 reanimated-stub self-checks.
+
+Mutation verification: **22/22** (`mutate-batch13.mjs`), zero survivors. Both survivors on the first pass were mine, not the tests': one fixture listed a file in the status set, so the dedupe filter had nothing to remove and the duplicate-rendering mutation was undetectable; the other used only lowercase paths, so a filter that had forgotten to fold case still matched everything. Fixed by making each fixture actually exercise the case its test claimed — a mixed-case path, and an _empty_ status set against a diff that reports the file.

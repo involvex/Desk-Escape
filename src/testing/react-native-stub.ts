@@ -109,6 +109,7 @@ export const RefreshControl = host<Record<string, unknown>>("RefreshControl");
  * cancelled touch — is not covered by this.
  */
 export const Pressable = host<Record<string, unknown>>("Pressable");
+export const TextInput = host<Record<string, unknown>>("TextInput");
 
 /**
  * `TouchableOpacity` forwards its press handler, like `Pressable`.
@@ -172,6 +173,91 @@ export function FlatList<T>({
   );
 }
 FlatList.displayName = "FlatList";
+
+/**
+ * Minimal `SectionList`: renders every section header and every item.
+ *
+ * Virtualization is the *component's* claim, not the stub's, so rendering
+ * everything is correct here -- it is the only way a test can assert that a row
+ * is or is not built. A collapsed section passes `data: []` and so contributes
+ * no rows, which is exactly what the diff panel relies on, and a test can prove
+ * it by asserting the absence of the body.
+ *
+ * The section arrives *flattened* alongside `data`, matching React Native's
+ * `SectionListData<ItemT, SectionT> = SectionT & { data: ItemT[] }`. The first
+ * version of this stub invented a `{ section, data }` wrapper, and the diff panel
+ * duly passed flat objects and rendered `undefined` for every header — which
+ * would have been a real crash, not just a test artefact. So the shape is
+ * asserted here rather than assumed.
+ */
+export interface SectionListProps<S extends object, T> {
+  sections?: readonly (S & { data: readonly T[] })[] | null;
+  renderItem: (info: {
+    item: T;
+    index: number;
+    section: S;
+    separators: unknown;
+  }) => ReactNode;
+  renderSectionHeader?: (info: { section: S }) => ReactNode;
+  keyExtractor?: (item: T, index: number) => string;
+  ListEmptyComponent?: React.ComponentType | ReactNode;
+  ListHeaderComponent?: React.ComponentType | ReactNode;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  stickySectionHeadersEnabled?: boolean;
+  contentContainerStyle?: unknown;
+  [key: string]: unknown;
+}
+
+export function SectionList<S extends object, T>({
+  sections,
+  renderItem,
+  renderSectionHeader,
+  keyExtractor,
+  ListEmptyComponent,
+  ListHeaderComponent,
+  ...rest
+}: SectionListProps<S, T>) {
+  const list = sections ?? [];
+
+  const resolve = (value: React.ComponentType | ReactNode): ReactNode => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    // A component type has to be *rendered*; anything else is already a node.
+    return typeof value === "function"
+      ? createElement(value as React.ComponentType)
+      : (value as ReactNode);
+  };
+
+  return createElement(
+    "SectionList",
+    rest,
+    resolve(ListHeaderComponent),
+    list.length === 0
+      ? resolve(ListEmptyComponent as React.ComponentType | ReactNode)
+      : list.map((entry, sectionIndex) =>
+          createElement(
+            Fragment,
+            // By index: `String(entry)` on a section object is "[object Object]"
+            // for every section, so React rejects them all as duplicate keys and
+            // warns once per section — noise a test has to read past.
+            { key: `section:${sectionIndex}` },
+            renderSectionHeader
+              ? renderSectionHeader({ section: entry })
+              : null,
+            entry.data.map((item, index) =>
+              createElement(
+                Fragment,
+                { key: keyExtractor?.(item, index) ?? String(index) },
+                renderItem({ item, index, section: entry, separators: {} }),
+              ),
+            ),
+          ),
+        ),
+  );
+}
+SectionList.displayName = "SectionList";
 
 /* -------------------------------------------------------------------------- */
 /* StyleSheet                                                                  */
@@ -333,8 +419,10 @@ export const IMPLEMENTED = [
   "Pressable",
   "RefreshControl",
   "ScrollView",
+  "SectionList",
   "StyleSheet",
   "Text",
+  "TextInput",
   "TouchableOpacity",
   "View",
   "useColorScheme",
@@ -368,6 +456,8 @@ export const reactNativeStub = new Proxy(
     Pressable,
     TouchableOpacity,
     FlatList,
+    SectionList,
+    TextInput,
     StyleSheet,
     Alert: { alert: recordAlert },
     Animated,

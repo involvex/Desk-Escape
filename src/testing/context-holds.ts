@@ -55,6 +55,32 @@ export interface ApiStub {
     calls: unknown[];
     handler: (body: unknown) => Promise<unknown>;
   };
+  /**
+   * `vcs.diff`, `vcs.status` and `file.list`.
+   *
+   * Three endpoints rather than one because the diff panel needs all three to
+   * reconstruct untracked files, and a stub that collapsed them would hide the
+   * question the panel exists to answer: `vcs.diff` cannot report a file git has
+   * never seen, so the panel has to subtract the status set from the listing to
+   * find one. Each has its own handler so a test can make one of them fail and
+   * assert the panel degrades rather than lying.
+   */
+  vcsDiff: {
+    calls: unknown[];
+    handler: (body: unknown) => Promise<unknown>;
+  };
+  vcsStatus: {
+    calls: unknown[];
+    handler: (body: unknown) => Promise<unknown>;
+  };
+  fileList: {
+    calls: unknown[];
+    handler: (body: unknown) => Promise<unknown>;
+  };
+  sessionDiff: {
+    calls: unknown[];
+    handler: (body: unknown) => Promise<unknown>;
+  };
 }
 
 function emptyApi(): ApiStub {
@@ -63,6 +89,10 @@ function emptyApi(): ApiStub {
     sessionStats: { calls: [], handler: async () => null },
     savedPermissions: { calls: [], handler: async () => [] },
     removePermission: { calls: [], handler: async () => undefined },
+    vcsDiff: { calls: [], handler: async () => ({ data: [] }) },
+    vcsStatus: { calls: [], handler: async () => ({ data: [] }) },
+    fileList: { calls: [], handler: async () => ({ data: [] }) },
+    sessionDiff: { calls: [], handler: async () => [] },
   };
 }
 
@@ -95,6 +125,25 @@ export function setRemovePermission(
 }
 
 /**
+ * Answer `vcs.diff`, `vcs.status`, `file.list` and `session.diff`.
+ *
+ * One setter for all four because a diff test almost always needs all four
+ * consistent with each other: a listing that disagrees with the status set makes
+ * every file look untracked, which is a fixture bug that reads as a product bug.
+ */
+export function setDiffSources(parts: {
+  vcsDiff?: (body: unknown) => Promise<unknown>;
+  vcsStatus?: (body: unknown) => Promise<unknown>;
+  fileList?: (body: unknown) => Promise<unknown>;
+  sessionDiff?: (body: unknown) => Promise<unknown>;
+}): void {
+  if (parts.vcsDiff) api.vcsDiff.handler = parts.vcsDiff;
+  if (parts.vcsStatus) api.vcsStatus.handler = parts.vcsStatus;
+  if (parts.fileList) api.fileList.handler = parts.fileList;
+  if (parts.sessionDiff) api.sessionDiff.handler = parts.sessionDiff;
+}
+
+/**
  * Clear the recorded calls, keeping the handlers.
  *
  * Called by `mount`, so a test always starts with a clean call log while keeping
@@ -110,6 +159,10 @@ export function resetClientCalls(): void {
   api.sessionStats.calls = [];
   api.savedPermissions.calls = [];
   api.removePermission.calls = [];
+  api.vcsDiff.calls = [];
+  api.vcsStatus.calls = [];
+  api.fileList.calls = [];
+  api.sessionDiff.calls = [];
   permissionCalls.respond = [];
   permissionCalls.dismiss = 0;
   permissionCalls.clearError = 0;
@@ -139,6 +192,26 @@ function fakeClient() {
       stats: (body: unknown) => {
         api.sessionStats.calls.push(body);
         return api.sessionStats.handler(body);
+      },
+      diff: (body: unknown) => {
+        api.sessionDiff.calls.push(body);
+        return api.sessionDiff.handler(body);
+      },
+    },
+    vcs: {
+      diff: (body: unknown) => {
+        api.vcsDiff.calls.push(body);
+        return api.vcsDiff.handler(body);
+      },
+      status: (body: unknown) => {
+        api.vcsStatus.calls.push(body);
+        return api.vcsStatus.handler(body);
+      },
+    },
+    file: {
+      list: (body: unknown) => {
+        api.fileList.calls.push(body);
+        return api.fileList.handler(body);
       },
     },
     permission: {

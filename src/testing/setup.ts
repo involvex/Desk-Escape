@@ -100,6 +100,23 @@ const { reactNativeStub } = await import("./react-native-stub");
 mock.module("react-native", () => reactNativeStub);
 
 /**
+ * `react-native-reanimated`.
+ *
+ * Reached *after* the `react-native` substitution above, and that ordering is the
+ * whole reason it works: reanimated pulls `TurboModuleRegistry` out of React
+ * Native at module load, so with the real package resolved this import throws
+ * "Export named 'TurboModuleRegistry' not found" before a single assertion runs.
+ *
+ * Five components import it — `ChatScrollBar`, `FileDrawer`, `Snackbar`,
+ * `WorkspaceScreen`, `UnifiedDiff` — so before this substitution none of them had
+ * any render coverage whatsoever. See the stub for what is real (shared values are
+ * mutable, `useAnimatedStyle` evaluates) and what is not (there is no frame loop,
+ * so `withTiming` resolves instantly).
+ */
+const { reanimatedStub } = await import("./reanimated-stub");
+mock.module("react-native-reanimated", () => reanimatedStub);
+
+/**
  * The app's own contexts.
  *
  * Registered here rather than per-render because `mock.module` only takes effect
