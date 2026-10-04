@@ -25,8 +25,24 @@ function joinAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
   return controller.signal;
 }
 
-function withTimeout(fetchFn: typeof fetch, timeoutMs: number): typeof fetch {
-  return (input: RequestInfo | URL, init?: RequestInit) => {
+/**
+ * The subset of `fetch` this module actually implements.
+ *
+ * Deliberately not `typeof fetch`: the ambient global differs per environment.
+ * React Native's `fetch` is a plain function type, while Bun's adds members
+ * (e.g. `preconnect`) that a function literal can never satisfy. Tagging the
+ * implementation with `typeof fetch` therefore typechecks under one environment
+ * and fails under the other. Typing the implementation against this structural
+ * alias keeps the file valid in both; the public signature still widens back to
+ * the ambient global so it drops straight into `OpenCode.make`.
+ */
+type FetchImpl = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+function withTimeout(fetchFn: FetchImpl, timeoutMs: number): FetchImpl {
+  return (input, init) => {
     const controller = new AbortController();
     const signal = init?.signal
       ? joinAbortSignals(init.signal, controller.signal)
@@ -75,7 +91,7 @@ export function createV2Fetch(options: OpenCodeTransportOptions): typeof fetch {
   const authorization = createAuthHeader(options.username, options.password);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const baseFetch: typeof fetch = async (input, init) => {
+  const baseFetch: FetchImpl = async (input, init) => {
     const headers = new Headers(init?.headers);
     headers.set("Authorization", authorization);
 
@@ -108,5 +124,10 @@ export function createV2Fetch(options: OpenCodeTransportOptions): typeof fetch {
     return response;
   };
 
-  return timeoutMs > 0 ? withTimeout(baseFetch, timeoutMs) : baseFetch;
+  const wrapped = timeoutMs > 0 ? withTimeout(baseFetch, timeoutMs) : baseFetch;
+
+  // `FetchImpl` is exactly `typeof fetch` under React Native's DOM lib. Under Bun
+  // the global carries extra members, so the widening is a downcast and needs the
+  // assertion; it is confined to this one return.
+  return wrapped as typeof fetch;
 }

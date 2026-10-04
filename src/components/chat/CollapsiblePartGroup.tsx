@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
+import { COPY_FEEDBACK_MS, copyToClipboard } from "@/utils/clipboard";
 
 export type PartType =
   | "reasoning"
@@ -171,12 +172,15 @@ export const CollapsiblePartGroup = memo(function CollapsiblePartGroupInner({
 
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = useCallback(() => {
-    if (body && typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(body);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+  const handleCopy = useCallback(async () => {
+    if (!body) {
+      return;
     }
+    if (!(await copyToClipboard(body))) {
+      return;
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
   }, [body]);
 
   return (

@@ -20,6 +20,7 @@
     "@tanstack/react-query": "^5.101.4",
     "expo": "~57.0.26",
     "expo-build-properties": "~57.0.22",
+    "expo-clipboard": "~57.0.2",
     "expo-haptics": "~57.0.3",
     "expo-local-authentication": "~57.0.3",
     "expo-notifications": "~57.0.21",
@@ -45,6 +46,7 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@types/bun": "^1.4.2",
     "@types/react": "~19.2.18",
     "@typescript-eslint/eslint-plugin": "^8.66.0",
     "@typescript-eslint/parser": "^8.66.0",
@@ -55,6 +57,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
     "prettier": "^3.9.9",
+    "test-renderer": "^1.3.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -71,11 +74,16 @@
     "check:install": "bunx expo install --check",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "typecheck:app": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "validate:pty": "bun scripts/validate-pty-ws.mjs",
+    "validate:contracts": "bun scripts/probe-server-contracts.mjs",
     "validate:terminal": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-terminal-android.ps1",
     "release": "powershell -File scripts/release.ps1"
   },

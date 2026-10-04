@@ -1,0 +1,16 @@
+{
+  "//": "Typechecks the test suite with Bun's globals. Kept separate from tsconfig.json because Bun's `fetch` typings conflict with React Native's and would break the app build.",
+  "//include": "`.tsx` matters: the component tests are TSX, and excluding them left five test files untypechecked while still counting them in `bun test`.",
+  "//exclude": "`src/testing` is the component-test harness — preload, module doubles, render helpers. It needs Bun's types (`bun:test`, `import.meta.dir`) and Node's (`node:fs` for the drift-guard scan), neither of which belongs in the app build.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun", "node"]
+  },
+  "include": [
+    "src/**/__tests__/**/*.ts",
+    "src/**/__tests__/**/*.tsx",
+    "src/testing/**/*.ts",
+    "src/testing/**/*.tsx"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

@@ -161,6 +161,20 @@ export class OpenCodeProvider implements AgentProvider {
     );
   }
 
+  /**
+   * Cancels the in-flight turn via `session.interrupt`.
+   *
+   * `resume` is deliberately unset: passing it restarts the turn with the same
+   * input, which is not what a Stop button should do.
+   */
+  async interruptSession(sessionId: string): Promise<boolean> {
+    const client = this.requireClient();
+    const result = await withOpenCodeErrors(() =>
+      client.session.interrupt({ sessionID: sessionId }),
+    );
+    return result?.interrupted ?? false;
+  }
+
   subscribe(callback: (event: unknown) => void): () => void {
     return this.eventBus.onEvent(callback);
   }

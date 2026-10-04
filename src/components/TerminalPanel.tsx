@@ -20,8 +20,10 @@ import { withLocation } from "@/api/opencode/location";
 import { TERMINAL_SHELL_HTML } from "@/assets/terminal-shell-html";
 import { useConnection } from "@/context/ConnectionContext";
 import { usePreferences } from "@/context/PreferencesContext";
+import { useTerminalBridge } from "@/context/TerminalBridgeContext";
 import { useTheme } from "@/context/ThemeContext";
 import { buildTerminalWebSocketUrl } from "@/utils/terminal-websocket";
+import { terminalDeliveryLabel } from "@/utils/terminal-input";
 
 interface TerminalPanelProps {
   bottomInset?: number;
@@ -46,12 +48,17 @@ function parseWebViewMessage(data: string): TerminalWebViewMessage | null {
 type WebViewConnectionState =
   "loading" | "connected" | "disconnected" | "error";
 
+/** How long the "sent to terminal" confirmation stays up. */
+const NOTICE_MS = 4000;
+
 export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const { colors, spacing, typography } = useTheme();
   const { client, config, project, activeDirectory } = useConnection();
   const { data: currentProject, isLoading: projectLoading } =
     useCurrentProject();
   const { terminalShell } = usePreferences();
+  const { setWriteSink, drainFor, lastDelivery, clearDelivery } =
+    useTerminalBridge();
   const [webViewState, setWebViewState] =
     useState<WebViewConnectionState>("loading");
   const [webViewError, setWebViewError] = useState<string | null>(null);
@@ -60,7 +67,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const directory =
     activeDirectory ?? currentProject?.worktree ?? project?.worktree ?? null;
 
-  const { ptyId, status, error, retry, reset } = usePtySession(
+  const { ptyId, status, error, retry, reset, dispose } = usePtySession(
     directory,
     terminalShell,
   );
@@ -139,10 +146,19 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     }
   }, [config, directory, ptyId, ticket]);
 
+  const terminalTheme = useMemo(
+    () => ({ background: colors.surface, foreground: colors.text }),
+    [colors.surface, colors.text],
+  );
+
   const terminalPayload = useMemo(() => {
     if (!wsUrl) return null;
     return {
       wsUrl,
+      // The shell reads `config.theme` when constructing xterm. It is included
+      // here (rather than in a separate global) because that is the only object
+      // the bundled shell actually reads.
+      theme: terminalTheme,
       // Kept alongside the URL (which already carries the ticket) so the
       // injected shell payload documents how the socket was authenticated.
       auth: {
@@ -150,7 +166,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         hasTicket: Boolean(ticket),
       },
     };
-  }, [wsUrl, ticket]);
+  }, [wsUrl, ticket, terminalTheme]);
 
   const injectedBeforeLoad = useMemo(() => {
     if (!terminalPayload) {
@@ -159,18 +175,14 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     return `window.__TERMINAL__ = ${JSON.stringify(terminalPayload)}; true;`;
   }, [terminalPayload]);
 
-  const themeScript = useMemo(() => {
-    return `window.__TERMINAL_THEME__ = ${JSON.stringify({ background: colors.surface, foreground: colors.text })}; true;`;
-  }, [colors.surface, colors.text]);
-
-  const htmlWithTheme = useMemo(
-    () =>
-      TERMINAL_SHELL_HTML.replace(
-        "</body>",
-        `<script>${themeScript}</script></body>`,
-      ),
-    [themeScript],
-  );
+  // Repaint the live terminal when the app theme changes. Injecting JS keeps the
+  // WebView - and therefore the 5000-line scrollback buffer - mounted; swapping
+  // `source.html` on theme change would reload the shell and lose it.
+  useEffect(() => {
+    webViewRef.current?.injectJavaScript(
+      `window.__TERMINAL_APPLY_THEME__ && window.__TERMINAL_APPLY_THEME__(${JSON.stringify(terminalTheme)}); true;`,
+    );
+  }, [terminalTheme]);
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
@@ -192,6 +204,85 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     },
     [client, directory, ptyId],
   );
+
+  /**
+   * Hand text to the live shell.
+   *
+   * `pty` has no HTTP write, so this injects into the WebView, which owns the only
+   * socket — the same route `__TERMINAL_APPLY_THEME__` takes for a theme change.
+   * `injectJavaScript` does not return the injected expression's value, so the
+   * return here is the panel's own knowledge of the socket. That is not a guess:
+   * `ws.onopen` is what flips this to `connected`, and the shell buffers anything
+   * that arrives a moment early.
+   */
+  const writeToShell = useCallback(
+    (text: string): boolean => {
+      if (!webViewRef.current || webViewState !== "connected") {
+        return false;
+      }
+      webViewRef.current.injectJavaScript(
+        `window.__TERMINAL_WRITE__ && window.__TERMINAL_WRITE__(${JSON.stringify(
+          text,
+        )}); true;`,
+      );
+      return true;
+    },
+    [webViewState],
+  );
+
+  /**
+   * Publish the write path while this panel is alive.
+   *
+   * Deliberately does *not* take the queue down on unmount. A queued write is a
+   * request to run a command in a project, not state belonging to a mounted view:
+   * it is tagged with the directory it was asked for, so it cannot fire in some
+   * other project. Clearing it here would drop commands the user asked for simply
+   * because they glanced back at the chat before the shell was ready.
+   *
+   * The effect re-runs on every connection-state change because `writeToShell`
+   * closes over it. That is why the cleanup only unpublishes.
+   */
+  useEffect(() => {
+    setWriteSink(writeToShell);
+    return () => {
+      setWriteSink(null);
+    };
+  }, [setWriteSink, writeToShell]);
+
+  /**
+   * Deliver queued writes once the socket is up.
+   *
+   * Declared after the effect above on purpose: that one publishes the sink, and
+   * this one has to see the version bound to `"connected"`. React runs effects in
+   * declaration order, so the sink is current by the time this fires.
+   *
+   * Draining in an effect rather than inside the WebView message handler is what
+   * makes that true — `setWebViewState` in the handler would not have reached the
+   * sink yet, so the drain would have run against the stale one and rejected every
+   * write.
+   */
+  useEffect(() => {
+    if (webViewState !== "connected") {
+      return;
+    }
+    // Destructive, so a later reconnect cannot re-run what already ran. The
+    // confirmation is set by `drainFor` itself, not here — setting it in this
+    // effect body would be a second render pass for text this component is about
+    // to display regardless.
+    drainFor(directory);
+  }, [directory, drainFor, webViewState]);
+
+  // Auto-dismiss the confirmation. Keyed on the delivery token so two batches of
+  // the same size each get their own full window.
+  useEffect(() => {
+    if (!lastDelivery) {
+      return;
+    }
+    const timer = setTimeout(clearDelivery, NOTICE_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [clearDelivery, lastDelivery]);
 
   const handleWebViewMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -233,6 +324,40 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
     setTicketNonce((value) => value + 1);
     reset();
   }, [reset]);
+
+  /**
+   * Ends the server-side shell and starts a fresh one.
+   *
+   * This is the user-facing escape hatch for a wedged shell, and the only path
+   * that deletes a PTY this device did not create. A confirmation is required
+   * because the shell's state - cwd, running processes, history - is destroyed
+   * server-side and cannot be recovered.
+   */
+  const [killConfirming, setKillConfirming] = useState(false);
+
+  const handleKillShell = useCallback(() => {
+    if (!killConfirming) {
+      setKillConfirming(true);
+      return;
+    }
+    setKillConfirming(false);
+    setWebViewState("loading");
+    setWebViewError(null);
+    setTicketNonce((value) => value + 1);
+    // `dispose` removes the PTY and clears the session, which is enough for the
+    // hook to re-list and create a replacement. Deliberately *not* calling
+    // `retry()` as well: that would bump the attempt counter a second time while
+    // the replacement is already being created, abandoning it as an orphan.
+    void dispose();
+  }, [dispose, killConfirming]);
+
+  // Any state change that isn't the confirmation itself cancels the prompt, so a
+  // "Kill shell?" tap cannot linger and then fire against a different PTY.
+  useEffect(() => {
+    if (!killConfirming) return;
+    const timer = setTimeout(() => setKillConfirming(false), 5000);
+    return () => clearTimeout(timer);
+  }, [killConfirming]);
 
   const styles = useMemo(
     () =>
@@ -280,6 +405,18 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           backgroundColor: colors.surface,
           flex: 1,
         },
+        notice: {
+          backgroundColor: colors.surfaceElevated,
+          borderBottomColor: colors.border,
+          borderBottomWidth: 1,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.xs,
+        },
+        noticeText: {
+          color: colors.text,
+          fontSize: typography.caption,
+          fontWeight: "600",
+        },
         statusBar: {
           alignItems: "center",
           backgroundColor: colors.surfaceElevated,
@@ -287,8 +424,13 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           borderBottomWidth: 1,
           flexDirection: "row",
           flexWrap: "wrap",
+          gap: spacing.sm,
           paddingHorizontal: spacing.md,
           paddingVertical: spacing.xs,
+        },
+        statusTextTarget: {
+          flexShrink: 1,
+          flexGrow: 1,
         },
         statusConnected: {
           color: colors.success,
@@ -307,6 +449,20 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
           color: colors.textMuted,
           fontSize: typography.caption,
           marginLeft: "auto",
+        },
+        killButton: {
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs,
+        },
+        killLabel: {
+          color: colors.textMuted,
+          fontSize: typography.caption,
+          fontWeight: "600",
+        },
+        killLabelConfirm: {
+          color: colors.danger,
         },
         ticketErrorContainer: {
           backgroundColor: colors.surfaceElevated,
@@ -432,22 +588,58 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
 
   return (
     <View style={styles.container}>
-      <Pressable
-        disabled={!showReconnect}
-        onPress={showReconnect ? handleWebViewReload : undefined}
-        style={styles.statusBar}
-      >
-        <Text style={[styles.statusText, statusStyle]}>{statusLabel}</Text>
-        {showReconnect ? (
-          <Text style={[styles.statusText, styles.statusError]}>
-            {" "}
-            - Tap to reconnect
+      <View style={styles.statusBar}>
+        {/* Only the status text is the reconnect target. The whole bar used to be
+            one Pressable, which left nowhere to put a second action. */}
+        <Pressable
+          disabled={!showReconnect}
+          onPress={showReconnect ? handleWebViewReload : undefined}
+          style={styles.statusTextTarget}
+        >
+          <Text style={[styles.statusText, statusStyle]}>{statusLabel}</Text>
+          {showReconnect ? (
+            <Text style={[styles.statusText, styles.statusError]}>
+              {" "}
+              - Tap to reconnect
+            </Text>
+          ) : null}
+          {webViewState === "connected" ? (
+            <Text style={styles.shellLabel}>{shellDisplayName}</Text>
+          ) : null}
+        </Pressable>
+        <Pressable
+          accessibilityLabel={
+            killConfirming
+              ? "Confirm kill shell"
+              : "Kill shell and start a new one"
+          }
+          accessibilityRole="button"
+          accessibilityState={{ selected: killConfirming }}
+          hitSlop={6}
+          onPress={handleKillShell}
+          style={styles.killButton}
+        >
+          <Text
+            style={[
+              styles.killLabel,
+              killConfirming ? styles.killLabelConfirm : null,
+            ]}
+          >
+            {killConfirming ? "Confirm?" : "Kill shell"}
           </Text>
-        ) : null}
-        {webViewState === "connected" ? (
-          <Text style={styles.shellLabel}>{shellDisplayName}</Text>
-        ) : null}
-      </Pressable>
+        </Pressable>
+      </View>
+      {lastDelivery ? (
+        <View
+          accessibilityLiveRegion="polite"
+          style={styles.notice}
+          testID="terminal-notice"
+        >
+          <Text style={styles.noticeText}>
+            {terminalDeliveryLabel(lastDelivery.count)}
+          </Text>
+        </View>
+      ) : null}
       <WebView
         ref={webViewRef}
         allowsInlineMediaPlayback
@@ -459,7 +651,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
         onMessage={handleWebViewMessage}
         onContentProcessDidTerminate={handleWebViewReload}
         originWhitelist={["*"]}
-        source={{ html: htmlWithTheme, baseUrl: config?.baseUrl }}
+        source={{ html: TERMINAL_SHELL_HTML, baseUrl: config?.baseUrl }}
         style={styles.webview}
       />
     </View>

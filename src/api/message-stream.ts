@@ -114,9 +114,12 @@ function appendToStreamedPart(
     !existing ||
     (existing.type !== "text" && existing.type !== "reasoning")
   ) {
-    // A part of a different kind already occupies this ordinal; the server's
-    // ordinal wins over whatever the previous occupant was.
-    return [...parts, part];
+    // A part of a different kind already occupies this ordinal. The server's
+    // ordinal wins, so the stale occupant is replaced rather than appended
+    // alongside: appending would leave two parts sharing one id, which
+    // collides as a list key and makes later lookups by id resolve the stale
+    // entry. `part.text` is applied so the current delta is not dropped.
+    return replaceAt(parts, index, { ...part, text: part.text + delta });
   }
 
   return replaceAt(parts, index, {
@@ -172,7 +175,12 @@ function upsertToolPart(parts: ChatPart[], part: ChatToolPart): ChatPart[] {
 
   const existing = parts[index];
   if (!existing || existing.type !== "tool") {
-    return [...parts, part];
+    // A text or reasoning part already holds this id, which means the server
+    // re-used an ordinal that a tool previously claimed. Replace it for the
+    // same reason as `appendToStreamedPart`: appending would leave two parts
+    // sharing one id, which collides as a list key and makes later lookups by
+    // id resolve whichever entry happens to be first.
+    return replaceAt(parts, index, part);
   }
 
   // Partial updates must not clear fields the event did not mention.

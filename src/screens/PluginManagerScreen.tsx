@@ -235,7 +235,7 @@ export function PluginManagerScreen({ navigation }: Props) {
           fontWeight: "600",
         },
         actionTextPrimary: {
-          color: "#04111A",
+          color: colors.onAccent,
         },
         status: {
           fontSize: typography.caption,
@@ -429,9 +429,9 @@ export function PluginManagerScreen({ navigation }: Props) {
           ]}
         >
           {update.isPending ? (
-            <ActivityIndicator color="#04111A" size="small" />
+            <ActivityIndicator color={colors.onAccent} size="small" />
           ) : (
-            <Download size={16} color="#04111A" />
+            <Download size={16} color={colors.onAccent} />
           )}
           <Text style={[styles.actionText, styles.actionTextPrimary]}>
             Update

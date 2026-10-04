@@ -9,6 +9,7 @@ import {
 } from "@/api/message-stream";
 import { withLocation } from "@/api/opencode/location";
 import { withOpenCodeErrors } from "@/api/opencode/errors";
+import { decodeFileContent } from "@/api/opencode/file-content";
 import {
   toChatMessages,
   toFileEntry,
@@ -501,6 +502,41 @@ export function useFileStatus() {
 }
 
 /**
+ * The decoded contents of a single file.
+ *
+ * V2's `file.read` answers with a bare `Uint8Array` - no mime type, no encoding,
+ * no declared size - so the classification into text / binary / oversized happens
+ * here in `decodeFileContent`.
+ *
+ * `enabled` exists because the whole body crosses the network: the viewer passes
+ * the path it is about to show and nothing else, so a closed viewer holds no
+ * query and a rapid tap-through does not stack up requests for files the user has
+ * already moved past.
+ */
+export function useFileContent(path: string | null, enabled = true) {
+  const { client, activeDirectory } = useConnection();
+
+  return useQuery({
+    enabled: Boolean(client && path && enabled),
+    queryKey: ["file-content", activeDirectory ?? "default", path],
+    queryFn: async () => {
+      if (!client || !path) {
+        return null;
+      }
+      const bytes = await withOpenCodeErrors(() =>
+        client.file.read({ ...withLocation(activeDirectory), path }),
+      );
+      return decodeFileContent(bytes);
+    },
+    // A file's contents are stable for a given path, so there is nothing to gain
+    // from refetching. The cache key includes the directory, so switching projects
+    // still produces a fresh read.
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+  });
+}
+
+/**
  * The diff for a single path.
  *
  * V1 read this off `file.read(...).data.diff`; that field does not exist in
@@ -592,6 +628,50 @@ export function useSendPrompt(sessionId: string | null) {
       const messages = await fetchSessionMessages(client, sessionId);
       queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
       setAgentActive(false);
+    },
+  });
+}
+
+/**
+ * Interrupts the running turn for a session.
+ *
+ * V2 exposes `session.interrupt({ sessionID })`, which returns whether anything
+ * was actually interrupted. Without this the only way to stop a runaway agent
+ * is to background or kill the app.
+ *
+ * `resume` is deliberately left unset. Setting it restarts the turn with the
+ * same input, which is not what a Stop button should do.
+ *
+ * On success the message list is refetched so the transcript reflects the
+ * interrupted turn immediately rather than waiting for the next event.
+ */
+export function useInterruptSession(sessionId: string | null) {
+  const queryClient = useQueryClient();
+  const { provider, setAgentActive } = useConnection();
+
+  return useMutation({
+    mutationFn: async () => {
+      if (!provider || !sessionId) {
+        throw new Error("No active session.");
+      }
+
+      // Routed through the provider so the Cursor backend can cancel its own
+      // run and tear down its SSE reader.
+      return provider.interruptSession(sessionId);
+    },
+    onSuccess: async (interrupted) => {
+      // `false` means the turn had already finished, so busy state is left to
+      // the authoritative idle event rather than being forced.
+      if (!interrupted) {
+        return;
+      }
+      setAgentActive(false);
+
+      if (!provider || !sessionId) {
+        return;
+      }
+      const messages = await provider.getMessages(sessionId);
+      queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
     },
   });
 }

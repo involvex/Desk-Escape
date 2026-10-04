@@ -1,18 +1,24 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { queueDepthLabel } from "@/api/permission-queue";
 import { usePermission } from "@/context/PermissionContext";
 import { useTheme } from "@/context/ThemeContext";
 
 /**
- * Approval prompt for a pending permission request.
+ * Approval prompt for the request at the head of the pending queue.
  *
  * V2 replaced the single `resource` string with a plural `resources` array and
  * replaced the free-form `description` with an optional `message`; both are
  * shown, plus the raw resource list when it would not fit in the message.
+ *
+ * Several requests can be outstanding at once — the agent blocks on them in
+ * order — so the banner shows one and counts the rest. Without that count,
+ * answering one prompt and seeing a different one appear looks like the app
+ * lost track of what it was asking.
  */
 export function PermissionBanner() {
   const { colors, spacing, typography } = useTheme();
-  const { pending, respond, dismiss, busy, error, clearError } =
+  const { pending, pendingCount, respond, dismiss, busy, error, clearError } =
     usePermission();
 
   const styles = useMemo(
@@ -36,6 +42,14 @@ export function PermissionBanner() {
         description: {
           color: colors.textMuted,
           fontSize: typography.caption,
+        },
+        queueDepth: {
+          // `textMuted` rather than `warning`: the count is context, not the
+          // ask, and `textMuted` is the pair already verified for contrast on
+          // `surfaceElevated` in all eight themes.
+          color: colors.textMuted,
+          fontSize: typography.caption,
+          fontWeight: "700",
         },
         resourceList: {
           backgroundColor: colors.surface,
@@ -101,9 +115,12 @@ export function PermissionBanner() {
       ? `“Always” remembers this for ${pending.action} in this project.`
       : "“Always” remembers this choice for the project.";
 
+  const depthLabel = queueDepthLabel(pendingCount);
+
   return (
     <View style={styles.banner}>
       <Text style={styles.title}>{pending.title}</Text>
+      {depthLabel ? <Text style={styles.queueDepth}>{depthLabel}</Text> : null}
       {pending.message ? (
         <Text style={styles.description}>{pending.message}</Text>
       ) : null}

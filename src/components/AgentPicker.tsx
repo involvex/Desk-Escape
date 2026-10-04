@@ -11,6 +11,7 @@ import { ChevronDown, Check } from "lucide-react-native";
 import { useAgents, useCurrentAgent, useSwitchAgent } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/theme/palettes";
 import type { Agent } from "@/types/domain";
 
 interface AgentPickerProps {
@@ -50,6 +51,8 @@ export function AgentPicker({
   const { data: agents = [], isLoading } = useAgents();
   const { data: sessionAgent = null } = useCurrentAgent(sessionId);
   const switchAgent = useSwitchAgent();
+
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   // `hidden` agents stay out of the picker but are still callable by the
   // server, so filtering here is purely a presentation decision.
@@ -219,136 +222,156 @@ export function AgentPicker({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    backgroundColor: "rgba(0,0,0,0.5)",
-    flex: 1,
-    justifyContent: "flex-end",
-    padding: 0,
-  },
-  modal: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 24,
-    maxHeight: "85%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E5E5",
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#04111A",
-  },
-  loading: {
-    alignItems: "center",
-    paddingVertical: 32,
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: "#888888",
-  },
-  empty: {
-    alignItems: "center",
-    paddingVertical: 32,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: "#888888",
-    textAlign: "center",
-  },
-  errorText: {
-    fontSize: 12,
-    color: "#CC3333",
-    marginTop: 8,
-    textAlign: "center",
-  },
-  list: {
-    maxHeight: 400,
-  },
-  agentItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
-    borderLeftWidth: 4,
-    borderLeftColor: "transparent",
-    borderRadius: 8,
-  },
-  agentItemCurrent: {
-    backgroundColor: "#F8F9FA",
-  },
-  agentMain: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-    minWidth: 0,
-  },
-  agentColorDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    flexShrink: 0,
-  },
-  agentInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  agentName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#04111A",
-  },
-  agentNameCurrent: {
-    fontWeight: "700",
-  },
-  agentDescription: {
-    fontSize: 13,
-    color: "#666666",
-    marginTop: 2,
-  },
-  agentMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 6,
-    gap: 4,
-  },
-  agentMetaText: {
-    fontSize: 12,
-    color: "#888888",
-  },
-  agentMetaSeparator: {
-    color: "#CCCCCC",
-  },
-  closeButton: {
-    marginTop: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    backgroundColor: "#F0F0F0",
-    borderRadius: 12,
-  },
-  closeText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#04111A",
-  },
-});
+/**
+ * Style mapping from the old hardcoded light palette:
+ *
+ * - `#FFFFFF` modal → `surfaceElevated`, the topmost-layer token.
+ * - `#04111A` → `text`; `#888888` / `#666666` → `textMuted`.
+ * - `#E5E5E5` / `#F0F0F0` / `#CCCCCC` → `border`.
+ * - `#F8F9FA` and the `#F0F0F0` button fill → `surface`.
+ * - `#CC3333` → `danger`.
+ *
+ * The literals were not merely ugly. The few elements here that *were* themed —
+ * the chevron, the spinner, the per-agent colour dots — were stranded on the
+ * `#FFFFFF` modal, and `textMuted` on white measures 1.35:1 in Nord and 1.48:1
+ * in High Contrast, against the 4.5:1 required for text. Theming the surface
+ * repairs both directions at once.
+ *
+ * `shadowColor` stays `#000`: a drop shadow really is black in every theme, and
+ * tinting it to `background` would make it vanish in the dark palettes.
+ */
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay: {
+      backgroundColor: "rgba(0,0,0,0.5)",
+      flex: 1,
+      justifyContent: "flex-end",
+      padding: 0,
+    },
+    modal: {
+      backgroundColor: colors.surfaceElevated,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 24,
+      maxHeight: "85%",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      elevation: 10,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 16,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    loading: {
+      alignItems: "center",
+      paddingVertical: 32,
+      gap: 12,
+    },
+    loadingText: {
+      fontSize: 14,
+      color: colors.textMuted,
+    },
+    empty: {
+      alignItems: "center",
+      paddingVertical: 32,
+    },
+    emptyText: {
+      fontSize: 14,
+      color: colors.textMuted,
+      textAlign: "center",
+    },
+    errorText: {
+      fontSize: 12,
+      color: colors.danger,
+      marginTop: 8,
+      textAlign: "center",
+    },
+    list: {
+      maxHeight: 400,
+    },
+    agentItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: 14,
+      paddingHorizontal: 4,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      borderLeftWidth: 4,
+      borderLeftColor: "transparent",
+      borderRadius: 8,
+    },
+    agentItemCurrent: {
+      backgroundColor: colors.surface,
+    },
+    agentMain: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      flex: 1,
+      minWidth: 0,
+    },
+    agentColorDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      flexShrink: 0,
+    },
+    agentInfo: {
+      flex: 1,
+      minWidth: 0,
+    },
+    agentName: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+    },
+    agentNameCurrent: {
+      fontWeight: "700",
+    },
+    agentDescription: {
+      fontSize: 13,
+      color: colors.textMuted,
+      marginTop: 2,
+    },
+    agentMeta: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: 6,
+      gap: 4,
+    },
+    agentMetaText: {
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    agentMetaSeparator: {
+      color: colors.border,
+    },
+    closeButton: {
+      marginTop: 16,
+      paddingVertical: 14,
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+    },
+    closeText: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+    },
+  });
+}

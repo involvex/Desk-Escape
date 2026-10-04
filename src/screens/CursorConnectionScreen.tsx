@@ -175,7 +175,7 @@ export function CursorConnectionScreen() {
           marginTop: spacing.sm,
         },
         buttonText: {
-          color: "#04111A",
+          color: colors.onAccent,
           fontSize: typography.body,
           fontWeight: "600",
         },
@@ -255,7 +255,7 @@ export function CursorConnectionScreen() {
       ) : null}
 
       <Pressable onPress={() => void handleTest()} style={styles.button}>
-        <Globe color="#04111A" size={18} />
+        <Globe color={colors.onAccent} size={18} />
         <Text style={styles.buttonText}>Test Connection</Text>
       </Pressable>
 

@@ -1,0 +1,13 @@
+[test]
+# Tests live next to the code they cover under `src/**/__tests__/`.
+# `bun test` reads the TS `paths` alias below, so specs can use `@/...` imports
+# exactly as the app source does.
+root = "src"
+# Component tests need `react-native` (and its neighbours) replaced with shims
+# before any spec imports a component, so the substitution is global and happens
+# in a preload rather than per-file. See src/testing/setup.ts for why.
+preload = ["./src/testing/setup.ts"]
+
+[install]
+# Keep the lockfile honest when native module versions move.
+exact = false

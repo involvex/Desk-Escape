@@ -211,7 +211,7 @@ export function ConnectionScreen() {
           marginTop: spacing.sm,
         },
         buttonText: {
-          color: "#04111A",
+          color: colors.onAccent,
           fontSize: typography.body,
           fontWeight: "600",
         },
@@ -478,7 +478,7 @@ export function ConnectionScreen() {
       ) : null}
 
       <Pressable onPress={() => void handleTest()} style={styles.button}>
-        <Server color="#04111A" size={18} />
+        <Server color={colors.onAccent} size={18} />
         <Text style={styles.buttonText}>Test Connection</Text>
       </Pressable>
 

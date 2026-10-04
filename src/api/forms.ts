@@ -130,6 +130,18 @@ export function fieldAllowsCustom(field: FormField): boolean {
 
 function conditionHolds(when: FormWhen, answer: FormAnswer): boolean {
   const current = answer[when.key];
+  // The two guards below are currently unreachable, and kept deliberately.
+  //
+  // `FormWhen.value` is a scalar (`string | number | boolean | "Infinity" | …`),
+  // so `Array.isArray(current)` and `current === undefined` both already imply
+  // `current === when.value` is false. A mutation that deletes the ternary
+  // entirely passes the whole suite, because it changes no behaviour.
+  //
+  // They are retained because `FormValue` *does* allow `Array<string>`, so the
+  // answer side is array-capable and only the `value` side keeps this safe. If a
+  // future SDK widens `FormWhen.value` to accept an array, these guards stop
+  // being dead and start being load-bearing — at which point removing them would
+  // silently make a multiselect answer comparable by reference.
   const matches =
     Array.isArray(current) || current === undefined
       ? false
@@ -222,10 +234,13 @@ export function multiselectConstraintViolations(
     const count = Array.isArray(answer[field.key])
       ? (answer[field.key] as string[]).length
       : 0;
-    if (field.minItems !== undefined && count < field.minItems) {
-      violations.push(field.key);
-    }
-    if (field.maxItems !== undefined && count > field.maxItems) {
+    // One push per field, not one per breached bound. A field with `minItems: 3`
+    // and `maxItems: 1` can breach both at once, and the caller renders this list
+    // as "pick at least 3, at most 1" — listing the key twice showed the same
+    // field's error twice.
+    const tooFew = field.minItems !== undefined && count < field.minItems;
+    const tooMany = field.maxItems !== undefined && count > field.maxItems;
+    if (tooFew || tooMany) {
       violations.push(field.key);
     }
   }
@@ -235,9 +250,14 @@ export function multiselectConstraintViolations(
 /**
  * Coerce raw text into a number for a `number` / `integer` field.
  *
- * The wire format also allows the `"Infinity"` / `"-Infinity"` / `"NaN"`
- * sentinels, which `Number()` produces for those literals, so no special
- * casing is needed beyond a NaN check.
+ * Unparseable input is returned as text rather than discarded, so the field can
+ * show the user what they typed instead of silently blanking.
+ *
+ * The wire format also allows `"Infinity"` / `"-Infinity"` sentinels, which
+ * `Number()` produces for those literals and which pass through as numbers.
+ * `"NaN"` does not: `Number("NaN")` is NaN, so the NaN branch returns the
+ * literal string `"NaN"` instead. That is deliberate — a NaN *number* is not
+ * representable in a text input, and the server parses the literal either way.
  */
 export function coerceNumber(raw: string): number | string {
   const trimmed = raw.trim();

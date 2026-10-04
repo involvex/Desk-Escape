@@ -33,7 +33,8 @@ import {
   usePreferences,
 } from "@/context/PreferencesContext";
 import { useSessionMeta } from "@/context/SessionMetaContext";
-import { themeDefinitions, useTheme } from "@/context/ThemeContext";
+import { useTheme } from "@/context/ThemeContext";
+import { themeDefinitions } from "@/theme/palettes";
 import { ensureNotificationPermissions } from "@/services/notifications";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type {
@@ -197,6 +198,11 @@ export function SettingsScreen({ navigation }: Props) {
           flex: 1,
           fontSize: typography.body,
         },
+        // For rows that carry a title plus a supporting line.
+        rowText: {
+          flex: 1,
+          gap: 2,
+        },
         chipRow: {
           flexDirection: "row",
           flexWrap: "wrap",
@@ -244,7 +250,7 @@ export function SettingsScreen({ navigation }: Props) {
           padding: spacing.md,
         },
         saveText: {
-          color: "#04111A",
+          color: colors.onAccent,
           fontSize: typography.body,
           fontWeight: "700",
         },
@@ -710,6 +716,21 @@ export function SettingsScreen({ navigation }: Props) {
               <Text style={styles.rowLabel}>
                 Enable permission notifications
               </Text>
+              <ChevronRight color={colors.textMuted} size={18} />
+            </Pressable>
+            {/* Grants written by answering a prompt with "Always" outlive the
+                session and the app install. Without a way to see and undo them
+                the choice is not really the user's. */}
+            <Pressable
+              onPress={() => navigation.navigate("SavedPermissions")}
+              style={styles.row}
+            >
+              <View style={styles.rowText}>
+                <Text style={styles.rowLabel}>Persistent grants</Text>
+                <Text style={styles.meta}>
+                  Review or revoke &quot;always allow&quot; choices
+                </Text>
+              </View>
               <ChevronRight color={colors.textMuted} size={18} />
             </Pressable>
           </View>

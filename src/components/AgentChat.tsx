@@ -18,11 +18,16 @@ import { Command, Send } from "lucide-react-native";
 import {
   useCommands,
   useExecuteCommand,
+  useInterruptSession,
   useSendPrompt,
   useSessionMessageStream,
   useSessionMessages,
 } from "@/api/hooks";
+import { useForkSession } from "@/api/fork";
+import { forkOffer } from "@/api/session-fork";
+import { toOpenCodeError } from "@/api/opencode/errors";
 import { useHaptics } from "@/hooks/useHaptics";
+import { AttachmentChips } from "@/components/AttachmentChips";
 import { ChatMessageBubble } from "@/components/chat/ChatMessageBubble";
 import {
   ChatScrollControls,
@@ -37,7 +42,9 @@ import {
 } from "@/components/SlashCommandMenu";
 import { useConnection } from "@/context/ConnectionContext";
 import { usePreferences } from "@/context/PreferencesContext";
+import { useTerminalBridge } from "@/context/TerminalBridgeContext";
 import { useTheme } from "@/context/ThemeContext";
+import { readFromClipboard } from "@/utils/clipboard";
 import type { MessageWithParts } from "@/types/opencode";
 
 interface AgentChatProps {
@@ -50,6 +57,13 @@ interface AgentChatProps {
   scrollToMessageId?: string | null;
   onOpenAgentPicker?: () => void;
   onOpenModelPicker?: () => void;
+  /**
+   * Bring the terminal panel up. "Run" writes to the shell, and the shell is
+   * usually not mounted — the panel unmounts on every tab switch — so the write is
+   * queued and replayed when the shell connects. Without this the command would
+   * run invisibly, off-screen.
+   */
+  onShowTerminal?: () => void;
 }
 
 const INITIAL_SCROLL_METRICS: ChatScrollMetrics = {
@@ -68,18 +82,23 @@ export function AgentChat({
   scrollToMessageId,
   onOpenAgentPicker,
   onOpenModelPicker,
+  onShowTerminal,
 }: AgentChatProps) {
   const { colors, spacing, typography } = useTheme();
   const { collapseToolCalls, collapseThinking, thinkingDefaultMode } =
     usePreferences();
   const { trigger: haptic } = useHaptics();
+  const { runInTerminal } = useTerminalBridge();
   const {
     sessionId,
     contextAttachments,
     clearContextAttachments,
+    removeContextAttachment,
     enqueueMessage,
     status,
     addContextAttachment,
+    agentActive,
+    selectSession,
   } = useConnection();
   const { data: messages = [], isLoading } = useSessionMessages(sessionId);
 
@@ -92,6 +111,8 @@ export function AgentChat({
   const { data: commands = [] } = useCommands();
   const sendPrompt = useSendPrompt(sessionId);
   const executeCommand = useExecuteCommand(sessionId);
+  const interruptSession = useInterruptSession(sessionId);
+  const forkSession = useForkSession(sessionId);
   const [localDraft, setLocalDraft] = useState("");
   const [scrollMetrics, setScrollMetrics] = useState<ChatScrollMetrics>(
     INITIAL_SCROLL_METRICS,
@@ -188,6 +209,22 @@ export function AgentChat({
           justifyContent: "center",
           width: 40,
         },
+        stopButton: {
+          alignItems: "center",
+          backgroundColor: colors.danger,
+          borderRadius: 999,
+          height: 40,
+          justifyContent: "center",
+          paddingHorizontal: spacing.md,
+        },
+        stopButtonDisabled: {
+          opacity: 0.6,
+        },
+        stopButtonText: {
+          color: colors.text,
+          fontSize: typography.caption,
+          fontWeight: "700",
+        },
         pasteButton: {
           alignItems: "center",
           backgroundColor: colors.surfaceElevated,
@@ -202,24 +239,6 @@ export function AgentChat({
           color: colors.text,
           fontSize: typography.caption,
           fontWeight: "600",
-        },
-        attachments: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: spacing.xs,
-          marginBottom: spacing.sm,
-        },
-        attachmentChip: {
-          backgroundColor: colors.surfaceElevated,
-          borderColor: colors.border,
-          borderRadius: 999,
-          borderWidth: 1,
-          paddingHorizontal: spacing.sm,
-          paddingVertical: 4,
-        },
-        attachmentText: {
-          color: colors.textMuted,
-          fontSize: typography.caption,
         },
         emptyWrap: {
           alignItems: "center",
@@ -415,12 +434,48 @@ export function AgentChat({
     setDraft(`/${command.name} `);
   };
 
+  /**
+   * "Run" on a code block.
+   *
+   * This used to call `session.command` with the code as the *command name*,
+   * which is why the button never worked: `session.command` runs named slash
+   * commands, so a code block asked the server to find a command named `npm
+   * test`. The code now goes to the shell instead, queued if no socket is up.
+   */
   const handleRunCommand = useCallback(
     (command: string) => {
-      if (!sessionId || !command.trim()) return;
-      void executeCommand.mutateAsync({ command: command.trim() });
+      const trimmed = command.trim();
+      if (!trimmed) return;
+      haptic("light");
+      runInTerminal(trimmed);
+      // Queueing is not enough on its own — the user asked for this to run, and
+      // they are looking at the chat.
+      onShowTerminal?.();
     },
-    [executeCommand, sessionId],
+    [haptic, onShowTerminal, runInTerminal],
+  );
+
+  /**
+   * Branch the conversation from a message, then go to the branch.
+   *
+   * Switching is the point. A fork that left the user in the original conversation
+   * would read as nothing having happened, and the new session would only be
+   * discoverable by going looking for it in the picker.
+   *
+   * The error is reported rather than swallowed: the fork failed and the user is
+   * still looking at the conversation they asked to leave, so silently doing
+   * nothing is the one outcome they could not distinguish from a dropped tap.
+   */
+  const handleFork = useCallback(
+    (messageId: string) => {
+      void forkSession.mutateAsync({ messageId }).then(
+        (created) => selectSession(created.id),
+        (error: unknown) => {
+          Alert.alert("Could not fork", toOpenCodeError(error).message);
+        },
+      );
+    },
+    [forkSession, selectSession],
   );
 
   const renderItem = ({ item }: { item: MessageWithParts }) => {
@@ -428,10 +483,16 @@ export function AgentChat({
     if (!item?.info?.id) {
       return null;
     }
+    // `null` for the first message and for anything no longer in the list — the
+    // same decision the bubble shows, taken from the same function, so the sheet
+    // can never offer a fork the pure module considers meaningless.
+    const fork = forkOffer(validMessages, item.info.id);
     return (
       <ChatMessageBubble
         collapseResetKey={collapseResetKey}
         defaultCollapsed={defaultCollapsed}
+        forkSummary={fork?.summary}
+        onFork={fork ? handleFork : undefined}
         thinkingDefaultCollapsed={thinkingDefaultCollapsed}
         message={item}
         onRunCommand={handleRunCommand}
@@ -442,17 +503,27 @@ export function AgentChat({
   const isEmpty = !isLoading && validMessages.length === 0;
   const isPending = sendPrompt.isPending || executeCommand.isPending;
 
+  // `agentActive` is driven by the event stream (`isAgentBusyEvent`), so it stays
+  // true for the whole turn - unlike `isPending`, which only covers the HTTP call
+  // that queued the prompt. That is what makes Stop meaningful.
+  const isStopping = interruptSession.isPending;
+
+  const handleStop = useCallback(() => {
+    void interruptSession.mutateAsync().catch(() => {
+      // Swallowed deliberately: the busy flag is cleared by the authoritative
+      // idle event, and a failed stop must not become an unhandled rejection.
+    });
+  }, [interruptSession]);
+
+  const stopLabel = isStopping ? "Stopping…" : "Stop";
+
   return (
     <View style={styles.container}>
-      {contextAttachments.length > 0 ? (
-        <View style={styles.attachments}>
-          {contextAttachments.map((attachment) => (
-            <View key={attachment.id} style={styles.attachmentChip}>
-              <Text style={styles.attachmentText}>{attachment.path}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
+      <AttachmentChips
+        attachments={contextAttachments}
+        onClearAll={clearContextAttachments}
+        onRemove={removeContextAttachment}
+      />
 
       <View style={styles.listWrap}>
         <FlatList
@@ -550,58 +621,74 @@ export function AgentChat({
           />
           <Pressable
             onPress={async () => {
-              if (typeof navigator !== "undefined" && navigator.clipboard) {
-                try {
-                  const raw = await navigator.clipboard.readText();
-                  if (!raw) return;
-                  const trimmed = raw.trim();
-                  if (
-                    trimmed.length <= 50 &&
-                    !trimmed.includes("\n") &&
-                    !trimmed.includes("```")
-                  ) {
-                    return;
-                  }
-                  const looksLikeCode =
-                    /^(function|class|const|let|var|import|export|def|async|await)\b/.test(
-                      trimmed,
-                    ) ||
-                    trimmed.includes("\n") ||
-                    trimmed.includes("```");
-                  if (!looksLikeCode) return;
-                  Alert.alert(
-                    "Paste as context?",
-                    "Clipboard contains code. Add as context attachment?",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Add",
-                        onPress: () => {
-                          addContextAttachment("clipboard");
-                        },
-                      },
-                    ],
-                  );
-                } catch {
-                  // Ignore clipboard read errors
-                }
+              const raw = await readFromClipboard();
+              if (!raw) return;
+              const trimmed = raw.trim();
+              // Skip short single-line prose; there is nothing useful to attach.
+              if (
+                trimmed.length <= 50 &&
+                !trimmed.includes("\n") &&
+                !trimmed.includes("```")
+              ) {
+                return;
               }
+              const looksLikeCode =
+                /^(function|class|const|let|var|import|export|def|async|await)\b/.test(
+                  trimmed,
+                ) ||
+                trimmed.includes("\n") ||
+                trimmed.includes("```");
+              if (!looksLikeCode) return;
+              Alert.alert(
+                "Paste as context?",
+                "Clipboard contains code. Add as context attachment?",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Add",
+                    onPress: () => {
+                      addContextAttachment("clipboard");
+                    },
+                  },
+                ],
+              );
             }}
             style={styles.pasteButton}
           >
             <Text style={styles.pasteButtonText}>Paste</Text>
           </Pressable>
-          <Pressable
-            disabled={isPending}
-            onPress={handleSend}
-            style={styles.sendButton}
-          >
-            {draft.startsWith("/") ? (
-              <Command color="#04111A" size={18} />
-            ) : (
-              <Send color="#04111A" size={18} />
-            )}
-          </Pressable>
+          {/* While the agent is mid-turn, send is replaced by Stop: one primary action
+              at a time, and a runaway turn can always be halted from here. */}
+          {agentActive ? (
+            <Pressable
+              accessibilityLabel="Stop the agent"
+              accessibilityRole="button"
+              accessibilityState={{ busy: isStopping }}
+              disabled={isStopping}
+              onPress={handleStop}
+              style={[
+                styles.stopButton,
+                isStopping && styles.stopButtonDisabled,
+              ]}
+            >
+              <Text style={styles.stopButtonText}>{stopLabel}</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityLabel="Send message"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isPending }}
+              disabled={isPending}
+              onPress={handleSend}
+              style={styles.sendButton}
+            >
+              {draft.startsWith("/") ? (
+                <Command color={colors.onAccent} size={18} />
+              ) : (
+                <Send color={colors.onAccent} size={18} />
+              )}
+            </Pressable>
+          )}
         </View>
       </KeyboardAvoidingView>
     </View>

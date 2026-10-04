@@ -11,11 +11,13 @@
     "scheme": "desk-escape",
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "app.deskescape.app",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "NSFaceIDUsageDescription": "Desk Escape uses Face ID to unlock the app so your agent sessions stay private."
       }
     },
     "android": {

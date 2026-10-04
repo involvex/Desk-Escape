@@ -64,6 +64,15 @@ export interface AgentProvider {
     attachments?: { path: string; name: string }[],
   ): Promise<void>;
 
+  /**
+   * Cancels the in-flight turn, so the composer can offer a Stop affordance.
+   *
+   * Resolves `false` when nothing was running, which is not an error: the turn
+   * may simply have finished between the user tapping Stop and the request
+   * landing.
+   */
+  interruptSession(sessionId: string): Promise<boolean>;
+
   subscribe(callback: (event: unknown) => void): () => void;
 
   getCurrentProject(): Promise<{ worktree?: string } | null>;

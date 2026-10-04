@@ -24,6 +24,8 @@ export class CursorProvider implements AgentProvider {
   private _agentId: string | null = null;
   private _messages: MessageWithParts[] = [];
   private _listeners: Set<(event: unknown) => void> = new Set();
+  /** Id of the run currently streaming, so it can be cancelled. */
+  private _currentRunId: string | null = null;
 
   get currentClient(): CursorApiClient | null {
     return this._client;
@@ -49,6 +51,7 @@ export class CursorProvider implements AgentProvider {
     this._config = null;
     this._agentId = null;
     this._messages = [];
+    this._currentRunId = null;
   }
 
   async testConnection(
@@ -118,6 +121,7 @@ export class CursorProvider implements AgentProvider {
     if (this._agentId === id) {
       this._agentId = null;
       this._messages = [];
+      this._currentRunId = null;
     }
   }
 
@@ -127,6 +131,7 @@ export class CursorProvider implements AgentProvider {
     }
     this._agentId = id;
     this._messages = [];
+    this._currentRunId = null;
     const agent = await this._client.getAgent(id);
     return {
       id: agent.id,
@@ -161,8 +166,14 @@ export class CursorProvider implements AgentProvider {
     }
 
     const run = result.run;
+    this._currentRunId = run.id;
 
-    this.eventBus.onEvent((event) => {
+    // Register the reducer once per send, and detach it again afterwards.
+    // Previously this subscription was never removed, so every prompt added a
+    // permanent listener: after N prompts each event was folded into
+    // `this._messages` N times, multiplying the transcript and eventually
+    // exhausting memory.
+    const unsubscribe = this.eventBus.onEvent((event) => {
       const typedEvent = event as CursorStreamEvent;
       const updated = applyCursorStreamEvent(
         this._messages,
@@ -177,7 +188,39 @@ export class CursorProvider implements AgentProvider {
       }
     });
 
-    await this.eventBus.start(this._client, this._agentId, run.id);
+    try {
+      await this.eventBus.start(this._client, this._agentId, run.id);
+    } finally {
+      // `start` resolves when the stream ends, so the subscription has served
+      // its purpose either way.
+      unsubscribe();
+    }
+  }
+
+  /**
+   * Cancels the active run for the selected agent.
+   *
+   * Used by the composer Stop affordance; without it a Cursor run can only be
+   * abandoned by closing the app.
+   */
+  async interruptSession(_sessionId: string): Promise<boolean> {
+    if (!this._client) {
+      throw new Error("Not connected");
+    }
+    if (!this._agentId) {
+      throw new Error("No agent selected");
+    }
+    const run = this._currentRunId;
+    if (!run) {
+      // Nothing in flight, so there is nothing to cancel.
+      return false;
+    }
+
+    await this._client.cancelRun(this._agentId, run);
+    // Stop the SSE reader so the cancelled run stops emitting.
+    this.eventBus.stop();
+    this._currentRunId = null;
+    return true;
   }
 
   subscribe(callback: (event: unknown) => void): () => void {

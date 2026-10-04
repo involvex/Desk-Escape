@@ -62,6 +62,27 @@ const shellLogic = `
         term.loadAddon(fitAddon);
         term.open(document.getElementById("terminal"));
 
+        // The app theme can change while the WebView stays mounted. Exposing a
+        // setter lets it repaint xterm in place instead of reloading the shell,
+        // which would otherwise throw away the scrollback buffer.
+        function applyTheme(theme) {
+          if (!theme) return;
+          if (theme.background) {
+            document.body.style.background = theme.background;
+            document.documentElement.style.setProperty(
+              "--terminal-bg",
+              theme.background,
+            );
+          }
+          term.options.theme = {
+            background: theme.background || "#0a0a0a",
+            foreground: theme.foreground || "#f5f5f5",
+            cursor: theme.foreground || "#f5f5f5",
+          };
+        }
+
+        window.__TERMINAL_APPLY_THEME__ = applyTheme;
+
         function reportSize() {
           fitAddon.fit();
           post("resize", { cols: term.cols, rows: term.rows });
@@ -74,8 +95,27 @@ const shellLogic = `
         const ws = new WebSocket(config.wsUrl);
         ws.binaryType = "arraybuffer";
 
+        // Writes from the app, waiting for a socket. The app queues too, but only
+        // for the case where the panel is not mounted at all; here the socket state
+        // is known synchronously, so a write that lands between the panel deciding
+        // it is connected and this code running is held rather than dropped.
+        let pendingWrites = [];
+
+        function flushWrites() {
+          if (ws.readyState !== WebSocket.OPEN) {
+            return 0;
+          }
+          let sent = 0;
+          while (pendingWrites.length > 0) {
+            ws.send(pendingWrites.shift());
+            sent += 1;
+          }
+          return sent;
+        }
+
         ws.onopen = function () {
           reportSize();
+          flushWrites();
           post("connected");
         };
 
@@ -94,6 +134,24 @@ const shellLogic = `
 
         ws.onerror = function () {
           post("error", { message: "WebSocket error" });
+        };
+
+        // "Run in terminal" lands here. The OpenCode \`pty\` namespace has no HTTP
+        // write, so this socket is the only path to the shell; the app reaches it
+        // by injecting JS, exactly as it does for the theme. Reports whether the
+        // write was sent or buffered \u2014 both are success, and only malformed or
+        // empty input is a refusal. Lost outright when the page is reloaded, which
+        // is why the app keeps its own queue for the not-mounted case.
+        window.__TERMINAL_WRITE__ = function (text) {
+          if (typeof text !== "string" || text.length === 0) {
+            return false;
+          }
+          if (ws.readyState !== WebSocket.OPEN) {
+            pendingWrites.push(text);
+            return true;
+          }
+          ws.send(text);
+          return true;
         };
 
         term.onData(function (data) {
@@ -115,6 +173,22 @@ const shellLogic = `
     })();
 `;
 
+const themeCssVars = `
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--terminal-bg, #0a0a0a);
+    }
+    #terminal {
+      width: 100%;
+      height: 100%;
+    }
+`;
+
 const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -124,21 +198,7 @@ const html = `<!DOCTYPE html>
     content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
   />
   <style>
-${xtermCss}
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #0a0a0a;
-    }
-    #terminal {
-      width: 100%;
-      height: 100%;
-    }
-  </style>
+${xtermCss}${themeCssVars}  </style>
 </head>
 <body>
   <div id="terminal"></div>

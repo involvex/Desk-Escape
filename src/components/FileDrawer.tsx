@@ -18,6 +18,7 @@ import { useFileList } from "@/api/hooks";
 import { toFileEntryList } from "@/api/opencode/adapter";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
+import { FileViewerSheet } from "@/components/FileViewerSheet";
 import { getFileIcon } from "@/utils/file-icon";
 
 interface FileDrawerProps {
@@ -37,6 +38,9 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
   const { addContextAttachment } = useConnection();
   const { width: screenWidth } = useWindowDimensions();
   const [currentPath, setCurrentPath] = useState(".");
+  // Tap opens the file, long-press attaches it to the prompt. Previously a tap on
+  // a file did nothing at all, so the only way to see its contents was the server.
+  const [viewingPath, setViewingPath] = useState<string | null>(null);
   const drawerWidth = Math.min(300, screenWidth * 0.85);
   const translateX = useSharedValue(-drawerWidth);
   const { data, isLoading, isError } = useFileList(currentPath);
@@ -164,6 +168,8 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
                   onPress={() => {
                     if (item.type === "directory") {
                       setCurrentPath(item.path);
+                    } else {
+                      setViewingPath(item.path);
                     }
                   }}
                   style={styles.item}
@@ -176,6 +182,10 @@ export function FileDrawer({ visible, onClose }: FileDrawerProps) {
           />
         )}
       </Animated.View>
+      <FileViewerSheet
+        path={viewingPath}
+        onClose={() => setViewingPath(null)}
+      />
     </>
   );
 }

@@ -7,6 +7,8 @@ interface BiometricLockContextValue {
   authenticate: () => Promise<boolean>;
   setBiometricLockEnabled: (enabled: boolean) => Promise<void>;
   initialized: boolean;
+  /** False while the app is backgrounded or inactive. */
+  appActive: boolean;
 }
 
 export const BiometricLockContext =
@@ -17,7 +19,8 @@ export function BiometricLockProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { state, authenticate, setEnabled, initialized } = useBiometricLock();
+  const { state, authenticate, setEnabled, initialized, appActive } =
+    useBiometricLock();
 
   return (
     <BiometricLockContext.Provider
@@ -26,6 +29,7 @@ export function BiometricLockProvider({
         authenticate,
         setBiometricLockEnabled: setEnabled,
         initialized,
+        appActive,
       }}
     >
       {children}

@@ -16,6 +16,8 @@ import {
   Terminal,
 } from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
+import { COPY_FEEDBACK_MS, copyToClipboard } from "@/utils/clipboard";
+import { isRunnableLanguage } from "@/utils/terminal-input";
 
 interface MarkdownRendererProps {
   content: string;
@@ -42,12 +44,22 @@ function CodeBlock({
 
   const trimmed = children.replace(/\n$/, "");
 
-  const handleCopy = useCallback(() => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(trimmed);
+  /**
+   * Whether to offer "Run" at all.
+   *
+   * The button used to appear on every code block. Now that it writes to a real
+   * shell, a JSON or TypeScript block would produce a syntax error in the user's
+   * terminal — so it is offered on the shell family only.
+   */
+  const canRun = Boolean(onRunCommand) && isRunnableLanguage(language);
+
+  const handleCopy = useCallback(async () => {
+    // Only show the confirmation when the write actually landed.
+    if (!(await copyToClipboard(trimmed))) {
+      return;
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
   }, [trimmed]);
 
   const handleRun = useCallback(() => {
@@ -139,8 +151,13 @@ function CodeBlock({
               <ChevronDown color={colors.textMuted} size={14} />
             )}
           </TouchableOpacity>
-          {onRunCommand ? (
-            <Pressable onPress={handleRun} style={styles.actionButton}>
+          {canRun ? (
+            <Pressable
+              accessibilityLabel="Run this command in the terminal"
+              accessibilityRole="button"
+              onPress={handleRun}
+              style={styles.actionButton}
+            >
               <Terminal color={colors.accent} size={12} />
               <Text style={styles.actionText}>Run</Text>
             </Pressable>

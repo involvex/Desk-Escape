@@ -17,6 +17,7 @@ import {
 } from "@/api/hooks";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/theme/palettes";
 import type { Model } from "@/types/domain";
 
 interface ModelPickerProps {
@@ -123,6 +124,8 @@ export function ModelPicker({
   const [searchQuery, setSearchQuery] = useState("");
   const [capabilityFilter, setCapabilityFilter] =
     useState<CapabilityFilter>("all");
+
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   // Provider display names, so the group headers are not just raw ids.
   const providerNames = useMemo(() => {
@@ -444,206 +447,226 @@ function formatCost(perMillion: number): string {
   return `$${perMillion.toFixed(2)}`;
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    backgroundColor: "rgba(0,0,0,0.5)",
-    flex: 1,
-    justifyContent: "flex-end",
-    padding: 0,
-  },
-  modal: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 24,
-    maxHeight: "90%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E5E5",
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#04111A",
-  },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F8F9FA",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#04111A",
-    paddingRight: 8,
-  },
-  searchIcon: {
-    position: "absolute",
-    right: 16,
-  },
-  filterScroll: {
-    marginBottom: 12,
-  },
-  filterContainer: {
-    gap: 8,
-    paddingHorizontal: 4,
-  },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#F0F0F0",
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-  },
-  filterChipActive: {
-    backgroundColor: "#04111A",
-    borderColor: "#04111A",
-  },
-  filterChipText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#333333",
-  },
-  filterChipTextActive: {
-    color: "#FFFFFF",
-  },
-  loading: {
-    alignItems: "center",
-    paddingVertical: 32,
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: "#888888",
-  },
-  empty: {
-    alignItems: "center",
-    paddingVertical: 32,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: "#888888",
-    textAlign: "center",
-  },
-  errorText: {
-    fontSize: 12,
-    color: "#CC3333",
-    marginTop: 8,
-    textAlign: "center",
-  },
-  list: {
-    maxHeight: 450,
-  },
-  providerGroup: {
-    marginBottom: 16,
-  },
-  providerLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#888888",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  modelItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: "#FAFAFA",
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
-    marginBottom: 6,
-  },
-  modelItemCurrent: {
-    backgroundColor: "#F0F4FF",
-    borderColor: "#D0D8FF",
-  },
-  modelInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  modelName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#04111A",
-  },
-  modelNameCurrent: {
-    fontWeight: "700",
-    color: "#1A1A2E",
-  },
-  modelMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    marginTop: 4,
-    gap: 4,
-  },
-  modelMetaText: {
-    fontSize: 11,
-    color: "#888888",
-  },
-  modelMetaSeparator: {
-    color: "#CCCCCC",
-  },
-  modelCapabilities: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 8,
-    gap: 6,
-  },
-  capabilityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: "#E8E8E8",
-  },
-  statusBadge: {
-    backgroundColor: "#FDF0D5",
-  },
-  capabilityText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#555555",
-    textTransform: "uppercase",
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#8A6100",
-    textTransform: "uppercase",
-  },
-  closeButton: {
-    marginTop: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    backgroundColor: "#F0F0F0",
-    borderRadius: 12,
-  },
-  closeText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#04111A",
-  },
-});
+/**
+ * Style mapping from the old hardcoded light palette.
+ *
+ * As with `AgentPicker`, the literals were not only ugly: the themed elements
+ * that lived inside this unthemed sheet - the search icon, the active filter
+ * chip's check, the per-provider model check - were sitting on `#FFFFFF`, and
+ * `textMuted` on white measures 1.35:1 in Nord.
+ *
+ * The active filter chip is the one that mattered most. It was `#04111A` with
+ * `#FFFFFF` text, i.e. a near-black chip: correct on the old white sheet, and
+ * once the sheet is themed it becomes a hole in a dark surface. It is now
+ * `accent` + `onAccent`, which is the pairing the palette actually specifies.
+ *
+ * `capabilityBadge` / `statusBadge` keep their light fills on purpose. Each is a
+ * self-contained chip with its own dark label, so the pair stays legible on any
+ * background; theming only the fill would separate the two halves of a pairing
+ * that already works.
+ */
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay: {
+      backgroundColor: "rgba(0,0,0,0.5)",
+      flex: 1,
+      justifyContent: "flex-end",
+      padding: 0,
+    },
+    modal: {
+      backgroundColor: colors.surfaceElevated,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 24,
+      maxHeight: "90%",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      elevation: 10,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 16,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    searchBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginBottom: 12,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text,
+      paddingRight: 8,
+    },
+    searchIcon: {
+      position: "absolute",
+      right: 16,
+    },
+    filterScroll: {
+      marginBottom: 12,
+    },
+    filterContainer: {
+      gap: 8,
+      paddingHorizontal: 4,
+    },
+    filterChip: {
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    filterChipActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    filterChipText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: colors.text,
+    },
+    filterChipTextActive: {
+      color: colors.onAccent,
+    },
+    loading: {
+      alignItems: "center",
+      paddingVertical: 32,
+      gap: 12,
+    },
+    loadingText: {
+      fontSize: 14,
+      color: colors.textMuted,
+    },
+    empty: {
+      alignItems: "center",
+      paddingVertical: 32,
+    },
+    emptyText: {
+      fontSize: 14,
+      color: colors.textMuted,
+      textAlign: "center",
+    },
+    errorText: {
+      fontSize: 12,
+      color: colors.danger,
+      marginTop: 8,
+      textAlign: "center",
+    },
+    list: {
+      maxHeight: 450,
+    },
+    providerGroup: {
+      marginBottom: 16,
+    },
+    providerLabel: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      marginBottom: 8,
+      marginLeft: 4,
+    },
+    modelItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 6,
+    },
+    modelItemCurrent: {
+      backgroundColor: colors.accentMuted,
+      borderColor: colors.accentMuted,
+    },
+    modelInfo: {
+      flex: 1,
+      minWidth: 0,
+    },
+    modelName: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.text,
+    },
+    modelNameCurrent: {
+      fontWeight: "700",
+      color: colors.text,
+    },
+    modelMeta: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+      marginTop: 4,
+      gap: 4,
+    },
+    modelMetaText: {
+      fontSize: 11,
+      color: colors.textMuted,
+    },
+    modelMetaSeparator: {
+      color: colors.border,
+    },
+    modelCapabilities: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      marginTop: 8,
+      gap: 6,
+    },
+    capabilityBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: "#E8E8E8",
+    },
+    statusBadge: {
+      backgroundColor: "#FDF0D5",
+    },
+    capabilityText: {
+      fontSize: 10,
+      fontWeight: "600",
+      color: "#555555",
+      textTransform: "uppercase",
+    },
+    statusText: {
+      fontSize: 10,
+      fontWeight: "700",
+      color: "#8A6100",
+      textTransform: "uppercase",
+    },
+    closeButton: {
+      marginTop: 16,
+      paddingVertical: 14,
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+    },
+    closeText: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text,
+    },
+  });
+}

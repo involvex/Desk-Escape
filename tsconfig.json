@@ -8,5 +8,12 @@
     }
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": [".agents", "dist", "node_modules"]
+  "//": "Tests are typechecked separately by tsconfig.test.json, which adds Bun's globals. Bun's `fetch` typings conflict with React Native's, so they must not leak into the app build. `src/testing` goes with them: it is the component-test harness and needs Bun and Node types.",
+  "exclude": [
+    ".agents",
+    "dist",
+    "node_modules",
+    "src/testing",
+    "src/**/__tests__/**"
+  ]
 }

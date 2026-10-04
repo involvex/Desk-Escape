@@ -15,6 +15,7 @@ import {
 } from "@/components/chat/message-parts";
 import { usePreferences } from "@/context/PreferencesContext";
 import { useTheme } from "@/context/ThemeContext";
+import { copyToClipboard } from "@/utils/clipboard";
 import type { MessageWithParts, ChatPart } from "@/types/domain";
 
 interface ChatMessageBubbleProps {
@@ -23,6 +24,23 @@ interface ChatMessageBubbleProps {
   thinkingDefaultCollapsed: boolean;
   collapseResetKey: string;
   onRunCommand?: (command: string) => void;
+  /**
+   * Branch the conversation from this message.
+   *
+   * Absent — rather than present-and-inert — when the message cannot be branched
+   * from, which is what keeps the action out of the sheet entirely. The bubble does
+   * not decide that: `forkOffer` does, from the conversation the bubble is not given.
+   */
+  onFork?: (messageId: string) => void;
+  /**
+   * What the branch keeps and leaves behind, shown above the buttons.
+   *
+   * Required whenever `onFork` is set, and it is the reason the branch goes through
+   * a sheet at all: which side of the cut each message lands on is a reading of the
+   * API's `before` parameter, and saying it before the fork exists is what keeps a
+   * wrong reading cheap.
+   */
+  forkSummary?: string;
 }
 
 function groupConsecutiveThinkingParts(parts: ChatPart[]): ChatPart[][] {
@@ -53,6 +71,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
   thinkingDefaultCollapsed,
   collapseResetKey,
   onRunCommand,
+  onFork,
+  forkSummary,
 }: ChatMessageBubbleProps) {
   const { colors, spacing, typography } = useTheme();
   const { autoExpandThinkingDuringStream, showThinkingTiming } =
@@ -109,12 +129,52 @@ export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
     [colors, spacing, typography],
   );
 
-  const handleLongPress = () => {
-    if (isUser || !text) return;
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(text);
+  const copyText = async () => {
+    if (!text) return;
+    // Only confirm when the clipboard write actually landed.
+    if (await copyToClipboard(text)) {
       Alert.alert("Copied", "Message copied to clipboard");
     }
+  };
+
+  /**
+   * Long press opens what can be done to this message, rather than doing one of them.
+   *
+   * Copy used to happen directly on long press, which left nowhere to put anything
+   * else: a second action needs a choice, and a long press that silently picks one
+   * of two is how a user copies a message when they meant to branch it. A sheet is
+   * also the only place the fork's summary can be read before it runs.
+   */
+  /**
+   * What a long press offers on this message.
+   *
+   * Built once per render and used for two decisions: whether the bubble responds to
+   * the gesture at all, and what the sheet contains. Deriving both from one list is
+   * what stops them disagreeing — a `hasActions` flag written out separately is a
+   * second copy of the same rule, and the copy that drifts opens an alert whose only
+   * button is Cancel.
+   */
+  const actions: { text: string; onPress?: () => void; style?: "cancel" }[] =
+    [];
+
+  // User messages have no Copy entry: their text is the prompt the user just typed
+  // and still has in the composer.
+  if (!isUser && text) {
+    actions.push({ text: "Copy", onPress: () => void copyText() });
+  }
+
+  if (onFork && forkSummary) {
+    actions.push({
+      text: "Fork from here",
+      onPress: () => onFork(message.info.id),
+    });
+  }
+
+  const handleLongPress = () => {
+    Alert.alert("Message", forkSummary, [
+      ...actions,
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   return (
@@ -123,7 +183,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubbleInner({
         styles.bubble,
         isUser ? styles.userBubble : styles.assistantBubble,
       ]}
-      onLongPress={isUser ? undefined : handleLongPress}
+      onLongPress={actions.length > 0 ? handleLongPress : undefined}
     >
       <Text style={styles.role}>{message.info.role}</Text>
       {text ? (
@@ -181,6 +241,12 @@ function areEqual(
     prev.defaultCollapsed === next.defaultCollapsed &&
     prev.thinkingDefaultCollapsed === next.thinkingDefaultCollapsed &&
     prev.collapseResetKey === next.collapseResetKey &&
-    prev.onRunCommand === next.onRunCommand
+    prev.onRunCommand === next.onRunCommand &&
+    // Identity, not truthiness: `handleFork` is one stable callback, and which
+    // messages carry it is the fork point. Comparing the truthiness instead would
+    // make every bubble re-render whenever the list grew, because "forkable" would
+    // go from false to true across the whole list at once.
+    prev.onFork === next.onFork &&
+    prev.forkSummary === next.forkSummary
   );
 }

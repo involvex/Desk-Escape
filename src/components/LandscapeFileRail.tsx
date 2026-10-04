@@ -13,6 +13,7 @@ import { useFileList } from "@/api/hooks";
 import { toFileEntryList } from "@/api/opencode/adapter";
 import { useConnection } from "@/context/ConnectionContext";
 import { useTheme } from "@/context/ThemeContext";
+import { FileViewerSheet } from "@/components/FileViewerSheet";
 import { getFileIcon } from "@/utils/file-icon";
 
 /** Path of the parent of a workspace-relative path; `.` is the root. */
@@ -27,6 +28,9 @@ export function LandscapeFileRail() {
   const { addContextAttachment } = useConnection();
   const { width: screenWidth } = useWindowDimensions();
   const [currentPath, setCurrentPath] = useState(".");
+  // Tap opens the file, long-press attaches it to the prompt. Same split as the
+  // phone drawer, so the two browsers stay predictable.
+  const [viewingPath, setViewingPath] = useState<string | null>(null);
   const railWidth = Math.min(Math.max(screenWidth * 0.28, 160), 200);
   const { data, isLoading, isError } = useFileList(currentPath);
 
@@ -128,6 +132,8 @@ export function LandscapeFileRail() {
                 onPress={() => {
                   if (item.type === "directory") {
                     setCurrentPath(item.path);
+                  } else {
+                    setViewingPath(item.path);
                   }
                 }}
                 style={styles.item}
@@ -141,6 +147,10 @@ export function LandscapeFileRail() {
           }}
         />
       )}
+      <FileViewerSheet
+        path={viewingPath}
+        onClose={() => setViewingPath(null)}
+      />
     </View>
   );
 }

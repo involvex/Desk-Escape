@@ -8,6 +8,7 @@ import {
   Check,
 } from "lucide-react-native";
 import { useTheme } from "@/context/ThemeContext";
+import { COPY_FEEDBACK_MS, copyToClipboard } from "@/utils/clipboard";
 import type { ChatPart } from "@/types/domain";
 import {
   getThinkingBody,
@@ -173,16 +174,15 @@ export const ThinkingPartGroup = memo(function ThinkingPartGroupInner({
 
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = () => {
-    if (
-      combinedBody &&
-      typeof navigator !== "undefined" &&
-      navigator.clipboard
-    ) {
-      navigator.clipboard.writeText(combinedBody);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+  const handleCopy = async () => {
+    if (!combinedBody) {
+      return;
     }
+    if (!(await copyToClipboard(combinedBody))) {
+      return;
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
   };
 
   return (

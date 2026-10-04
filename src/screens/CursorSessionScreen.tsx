@@ -144,7 +144,7 @@ export function CursorSessionScreen() {
           alignItems: "center",
         },
         buttonText: {
-          color: "#04111A",
+          color: colors.onAccent,
           fontSize: typography.body,
           fontWeight: "600",
         },
@@ -186,7 +186,7 @@ export function CursorSessionScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Cursor Agents</Text>
         <Pressable onPress={() => setShowCreate(true)} style={styles.button}>
-          <Plus color="#04111A" size={16} />
+          <Plus color={colors.onAccent} size={16} />
           <Text style={styles.buttonText}>New</Text>
         </Pressable>
       </View>

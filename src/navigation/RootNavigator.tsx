@@ -7,7 +7,9 @@ import { CursorConnectionScreen } from "@/screens/CursorConnectionScreen";
 import { CursorSessionScreen } from "@/screens/CursorSessionScreen";
 import { PluginManagerScreen } from "@/screens/PluginManagerScreen";
 import { ProviderPickerScreen } from "@/screens/ProviderPickerScreen";
+import { SavedPermissionsScreen } from "@/screens/SavedPermissionsScreen";
 import { SettingsScreen } from "@/screens/SettingsScreen";
+import { StatsScreen } from "@/screens/StatsScreen";
 import { WorkspaceScreen } from "@/screens/WorkspaceScreen";
 
 export type RootStackParamList = {
@@ -17,6 +19,8 @@ export type RootStackParamList = {
   CursorSessions: undefined;
   Workspace: undefined;
   Settings: undefined;
+  SavedPermissions: undefined;
+  Stats: undefined;
   Plugins: undefined;
 };
 
@@ -58,7 +62,12 @@ export function RootNavigator() {
       <Stack.Screen name="CursorSessions" component={CursorSessionScreen} />
       <Stack.Screen name="Workspace" component={WorkspaceScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen
+        name="SavedPermissions"
+        component={SavedPermissionsScreen}
+      />
       <Stack.Screen name="Plugins" component={PluginManagerScreen} />
+      <Stack.Screen name="Stats" component={StatsScreen} />
     </Stack.Navigator>
   );
 }

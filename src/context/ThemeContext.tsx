@@ -11,270 +11,29 @@ import {
 } from "react";
 import { useColorScheme } from "react-native";
 import type { FontScale, FontType, ThemeName } from "@/types/opencode";
+import {
+  scaleTypography,
+  themeDefinitions,
+  themeNames,
+  type ThemeColors,
+  type ThemeDefinition,
+  type ThemeSpacing,
+  type ThemeTypography,
+} from "@/theme/palettes";
+
+// Re-exported so existing `import { … } from "@/context/ThemeContext"` call
+// sites keep working. The declarations themselves live in `@/theme/palettes`,
+// which has no React Native dependency and is therefore unit-testable.
+export type {
+  ThemeColors,
+  ThemeDefinition,
+  ThemeSpacing,
+  ThemeTypography,
+} from "@/theme/palettes";
 
 const THEME_STORAGE_KEY = "@desk-escape/theme";
 const SYNC_THEME_KEY = "@desk-escape/sync-theme";
 const FONT_TYPE_KEY = "@desk-escape/font-type";
-
-export interface ThemeColors {
-  background: string;
-  surface: string;
-  surfaceElevated: string;
-  border: string;
-  text: string;
-  textMuted: string;
-  accent: string;
-  accentMuted: string;
-  success: string;
-  danger: string;
-  warning: string;
-  pillBackground: string;
-  inputBackground: string;
-}
-
-export interface ThemeSpacing {
-  xs: number;
-  sm: number;
-  md: number;
-  lg: number;
-  xl: number;
-}
-
-export interface ThemeTypography {
-  title: number;
-  subtitle: number;
-  body: number;
-  caption: number;
-  mono: number;
-  fontFamily: string;
-}
-
-export interface ThemeDefinition {
-  name: ThemeName;
-  label: string;
-  statusBar: "light" | "dark";
-  colors: ThemeColors;
-  spacing: ThemeSpacing;
-  typography: ThemeTypography;
-}
-
-const sharedSpacing: ThemeSpacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-};
-
-const baseTypography: ThemeTypography = {
-  title: 20,
-  subtitle: 16,
-  body: 14,
-  caption: 12,
-  mono: 13,
-  fontFamily: "System",
-};
-
-function scaleTypography(scale: number, fontType: FontType): ThemeTypography {
-  return {
-    title: Math.round(baseTypography.title * scale),
-    subtitle: Math.round(baseTypography.subtitle * scale),
-    body: Math.round(baseTypography.body * scale),
-    caption: Math.round(baseTypography.caption * scale),
-    mono: Math.round(baseTypography.mono * scale),
-    fontFamily: fontType === "mono" ? "monospace" : "System",
-  };
-}
-
-const themeNames: ThemeName[] = [
-  "oled-black",
-  "dev-dark",
-  "dev-light",
-  "midnight-purple",
-  "solarized-dark",
-  "nord",
-  "high-contrast",
-  "hacker",
-];
-
-export const themeDefinitions: Record<ThemeName, ThemeDefinition> = {
-  "oled-black": {
-    name: "oled-black",
-    label: "OLED Black",
-    statusBar: "light",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#000000",
-      surface: "#0A0A0A",
-      surfaceElevated: "#141414",
-      border: "#262626",
-      text: "#F5F5F5",
-      textMuted: "#9CA3AF",
-      accent: "#22D3EE",
-      accentMuted: "#155E75",
-      success: "#34D399",
-      danger: "#F87171",
-      warning: "#FBBF24",
-      pillBackground: "rgba(10, 10, 10, 0.88)",
-      inputBackground: "#111111",
-    },
-  },
-  "dev-dark": {
-    name: "dev-dark",
-    label: "Dev Dark",
-    statusBar: "light",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#0D1117",
-      surface: "#161B22",
-      surfaceElevated: "#1C2128",
-      border: "#30363D",
-      text: "#E6EDF3",
-      textMuted: "#8B949E",
-      accent: "#58A6FF",
-      accentMuted: "#1F3A5F",
-      success: "#3FB950",
-      danger: "#F85149",
-      warning: "#D29922",
-      pillBackground: "rgba(22, 27, 34, 0.92)",
-      inputBackground: "#0D1117",
-    },
-  },
-  "dev-light": {
-    name: "dev-light",
-    label: "Dev Light",
-    statusBar: "dark",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#F6F8FA",
-      surface: "#FFFFFF",
-      surfaceElevated: "#FFFFFF",
-      border: "#D0D7DE",
-      text: "#1F2328",
-      textMuted: "#656D76",
-      accent: "#0969DA",
-      accentMuted: "#DDF4FF",
-      success: "#1A7F37",
-      danger: "#CF222E",
-      warning: "#9A6700",
-      pillBackground: "rgba(255, 255, 255, 0.94)",
-      inputBackground: "#FFFFFF",
-    },
-  },
-  "midnight-purple": {
-    name: "midnight-purple",
-    label: "Midnight Purple",
-    statusBar: "light",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#0B0614",
-      surface: "#140A22",
-      surfaceElevated: "#1C1030",
-      border: "#3B2A5C",
-      text: "#F3E8FF",
-      textMuted: "#C4B5FD",
-      accent: "#A78BFA",
-      accentMuted: "#4C1D95",
-      success: "#34D399",
-      danger: "#FB7185",
-      warning: "#FBBF24",
-      pillBackground: "rgba(20, 10, 34, 0.92)",
-      inputBackground: "#12081F",
-    },
-  },
-  "solarized-dark": {
-    name: "solarized-dark",
-    label: "Solarized Dark",
-    statusBar: "light",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#002B36",
-      surface: "#073642",
-      surfaceElevated: "#0A4452",
-      border: "#586E75",
-      text: "#EEE8D5",
-      textMuted: "#93A1A1",
-      accent: "#2AA198",
-      accentMuted: "#134E4A",
-      success: "#859900",
-      danger: "#DC322F",
-      warning: "#B58900",
-      pillBackground: "rgba(7, 54, 66, 0.92)",
-      inputBackground: "#002B36",
-    },
-  },
-  nord: {
-    name: "nord",
-    label: "Nord",
-    statusBar: "light",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#2E3440",
-      surface: "#3B4252",
-      surfaceElevated: "#434C5E",
-      border: "#4C566A",
-      text: "#ECEFF4",
-      textMuted: "#D8DEE9",
-      accent: "#88C0D0",
-      accentMuted: "#2E4A59",
-      success: "#A3BE8C",
-      danger: "#BF616A",
-      warning: "#EBCB8B",
-      pillBackground: "rgba(59, 66, 82, 0.92)",
-      inputBackground: "#2E3440",
-    },
-  },
-  "high-contrast": {
-    name: "high-contrast",
-    label: "High Contrast",
-    statusBar: "light",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#000000",
-      surface: "#111111",
-      surfaceElevated: "#1A1A1A",
-      border: "#FFFFFF",
-      text: "#FFFFFF",
-      textMuted: "#D4D4D4",
-      accent: "#FFFF00",
-      accentMuted: "#3D3D00",
-      success: "#00FF66",
-      danger: "#FF4444",
-      warning: "#FFAA00",
-      pillBackground: "rgba(0, 0, 0, 0.95)",
-      inputBackground: "#000000",
-    },
-  },
-  hacker: {
-    name: "hacker",
-    label: "Hacker",
-    statusBar: "light",
-    spacing: sharedSpacing,
-    typography: baseTypography,
-    colors: {
-      background: "#0A0A0A",
-      surface: "#0F1A0F",
-      surfaceElevated: "#142014",
-      border: "#00FF00",
-      text: "#00FF00",
-      textMuted: "#00CC00",
-      accent: "#00FF00",
-      accentMuted: "#003300",
-      success: "#00FF00",
-      danger: "#FF0000",
-      warning: "#FFFF00",
-      pillBackground: "rgba(10, 26, 10, 0.92)",
-      inputBackground: "#0A0A0A",
-    },
-  },
-};
 
 interface ThemeContextValue {
   themeName: ThemeName;
