@@ -24,6 +24,7 @@ import {
 } from "./context-holds";
 import { webViewStubModule } from "./webview-stub";
 import { clipboardStubModule } from "./clipboard-stub";
+import { notificationsStubModule } from "./notifications-stub";
 
 /** `forwardRef` components are objects; `createElement` needs the component type. */
 type ReactElementType = ComponentType<Record<string, unknown>>;
@@ -141,18 +142,37 @@ mock.module("@/context/ConnectionContext", () => ({
 }));
 
 /**
- * The permission queue.
+ * The permission queue, as *consumers* see it.
  *
- * Mocked for the same reason as the two above, and more strongly: the real
- * `PermissionProvider` subscribes to the event bus, adopts pending requests on
- * mount, and listens for notification taps, so rendering it would mean standing up
- * the whole connection. `usePermission` is a read of four values and three
- * actions, so the values are injected and the actions recorded.
+ * `PermissionProvider` itself lives in `@/context/permission-provider` and is
+ * deliberately **not** substituted, so its queue wiring, rehydration, auto-approve
+ * path and notification listener are all testable for real. Only this seam is
+ * replaced, for the reason the two above give: `PermissionBanner` reads four values
+ * and calls three actions, and standing up the connection to supply those would test
+ * the plumbing twice.
+ *
+ * The original note here blamed the provider's event-bus subscription for forcing
+ * the mock. That was not the blocker — `useConnection` is already substituted. The
+ * real one was a single native import: `expo-notifications` reaches
+ * `expo-modules-core`, which reads `__DEV__`, a global only Metro defines, so the
+ * module could not be loaded at all. With that stubbed below, the provider is
+ * renderable and this seam is a convenience rather than a necessity.
  */
 mock.module("@/context/PermissionContext", () => ({
   usePermission: () => currentPermission(),
   PermissionProvider: ({ children }: { children: unknown }) => children,
 }));
+
+/**
+ * Notifications.
+ *
+ * `expo-notifications` cannot be imported under `bun test` at all: it reaches
+ * `expo-modules-core`, which reads `__DEV__` at module load and throws
+ * `ReferenceError: __DEV__ is not defined` before a single assertion runs. That one
+ * import is what kept `PermissionProvider` untestable, and with `AppState` below it
+ * is the whole of the reason.
+ */
+mock.module("expo-notifications", () => notificationsStubModule);
 
 /**
  * `react-native-safe-area-context` measures insets through native modules and

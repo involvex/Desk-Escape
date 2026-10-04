@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { queueDepthLabel } from "@/api/permission-queue";
+import { deferredCountLabel } from "@/api/notification-replies";
 import { usePermission } from "@/context/PermissionContext";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -15,11 +16,32 @@ import { useTheme } from "@/context/ThemeContext";
  * order — so the banner shows one and counts the rest. Without that count,
  * answering one prompt and seeing a different one appear looks like the app
  * lost track of what it was asking.
+ *
+ * ## The deferred-reply notice
+ *
+ * A reply the user gave by tapping a notification, while the app had no client to
+ * send it with, is *held* rather than dropped. This banner is where that becomes
+ * visible, and it is the honest answer to "gate the notification actions when the
+ * client is not ready".
+ *
+ * Gating cannot mean removing the buttons: the OS is what presents them, and by the
+ * time the app knows it has no client the notification is already on screen. What the
+ * app *can* do is never lose the tap and say so. Before this, the tap was dropped and
+ * nothing was said — the OS had dismissed the notification, so the system recorded the
+ * interaction as handled while the agent stayed blocked.
  */
 export function PermissionBanner() {
   const { colors, spacing, typography } = useTheme();
-  const { pending, pendingCount, respond, dismiss, busy, error, clearError } =
-    usePermission();
+  const {
+    pending,
+    pendingCount,
+    respond,
+    dismiss,
+    busy,
+    error,
+    clearError,
+    deferredCount,
+  } = usePermission();
 
   const styles = useMemo(
     () =>
@@ -69,6 +91,13 @@ export function PermissionBanner() {
           fontSize: typography.caption,
           fontStyle: "italic",
         },
+        deferred: {
+          // `textMuted` like the queue depth: the held reply is context, not the ask,
+          // and this is the pair already verified for contrast on `surfaceElevated` in
+          // all eight palettes.
+          color: colors.textMuted,
+          fontSize: typography.caption,
+        },
         error: {
           color: colors.danger,
           fontSize: typography.caption,
@@ -116,6 +145,7 @@ export function PermissionBanner() {
       : "“Always” remembers this choice for the project.";
 
   const depthLabel = queueDepthLabel(pendingCount);
+  const deferredLabel = deferredCountLabel(deferredCount);
 
   return (
     <View style={styles.banner}>
@@ -136,6 +166,10 @@ export function PermissionBanner() {
       ) : null}
 
       <Text style={styles.saveHint}>{saveHint}</Text>
+
+      {deferredLabel ? (
+        <Text style={styles.deferred}>{deferredLabel}</Text>
+      ) : null}
 
       {error ? (
         <Pressable onPress={clearError}>

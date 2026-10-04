@@ -659,3 +659,72 @@ Writing the first `UnifiedDiff` render test surfaced a gap with a much larger bl
 **1102 tests across 32 files** (from 1048 / 29). New: 28 `diff-view` model, 10 `UnifiedDiff` render, 16 reanimated-stub self-checks.
 
 Mutation verification: **22/22** (`mutate-batch13.mjs`), zero survivors. Both survivors on the first pass were mine, not the tests': one fixture listed a file in the status set, so the dedupe filter had nothing to remove and the duplicate-rendering mutation was undetectable; the other used only lowercase paths, so a filter that had forgotten to fold case still matched everything. Fixed by making each fixture actually exercise the case its test claimed — a mixed-case path, and an _empty_ status set against a diff that reports the file.
+
+---
+
+## Batch 14 - §5.2 Phase 1, and the test hole that hid a live bug
+
+**The report was right about the defect and understated it.** §5.2 said a tap on "Allow" with no client is "silently dropped". It was worse than that. The old handler was:
+
+```ts
+if (action === "allow" || action === "reject" || action === "always-allow") {
+  if (v2Client) {
+    replyToPermission(v2Client, { ... }).catch(console.error);
+  }
+  return; // <- skips the banner too
+}
+```
+
+That `return` also skipped the enqueue below it. So one tap left the request in **no queue at all** — not sent, and not visible in the app either. It came back only on a reconnect, when rehydration re-listed it. The OS had already dismissed the notification, so the system recorded the interaction as handled; the app said nothing, because it had no channel to say anything; and the agent stayed blocked. With §4.9's queue it is worse than one — a killed app can hold _N_ outstanding requests and produce no notification for any of them.
+
+### Why a live bug sat in a mounted, shipped provider with no tests
+
+`PermissionProvider` is mounted at `App.tsx:44` and had **zero** tests. The reason was a single import:
+
+```
+expo-notifications → expo-modules-core → expo/src/async-require/setup.ts
+                                              if (__DEV__ && ...)   // ReferenceError
+```
+
+`__DEV__` is a global only Metro defines, so the module cannot be loaded under `bun test` at all — the failure is at module load, before any assertion. The comment in `setup.ts` blamed the provider's event-bus subscription instead, which was **not** the blocker (`useConnection` is already substituted there). A plausible wrong reason is worse than no reason: it reads as a considered decision.
+
+That one native import was hiding the SSE subscription, the mount-time rehydration, the auto-approve path, the `AppState` gate on posting, and the notification listener. `AppState` was the second blocker — it was absent from the React Native stub, so the namespace `Proxy` would have thrown on it.
+
+### What shipped
+
+`src/api/notification-replies.ts` (pure) holds the decision table and the deferred-reply queue. Two properties of it are deliberate:
+
+- **"Ignored" is named, not silent.** A response the app declines to act on returns `{ kind: "ignored", reason: "not-a-permission" | "missing-identifiers" }`. `null` would make "not ours" and "ours but malformed" indistinguishable — which is precisely the vocabulary in which the original bug was invisible.
+- **A replacement keeps its position.** A second tap on one request replaces rather than appends, and does so **in place**. Caught by a test written from the principle before the implementation existed: appending reorders the sends, and §4.9 established that order is load-bearing because the agent is blocked on its own queue head.
+
+`PermissionProvider` now: enqueues the request **first**, whatever the tap was; sends the reply if a client exists; otherwise **holds** it. Held replies flush when a client appears, are dropped on success, and are kept on failure — a dropped one would leave the agent blocked on a prompt that looks answered. `PermissionBanner` shows the count, which is the honest answer to "gate the actions when the client is not ready": the OS presents those buttons and the app cannot un-present them, so what it can do is never lose the tap and say so.
+
+### Two gaps the new tests found in the fix itself
+
+- **The cold-start read double-answered.** `isSameNotification` was written into the pure module and then never called. Read-after-register deliberately overlaps the two routes — that is what closes the gap — so the overlap is designed in, and without dedupe one tap produced two replies, the second of which the server rejects as already-answered. Dedupe is keyed on the **OS's** notification id, matching the package's own `determineNextResponse`.
+- **The `AppState` gate was asserted but unreachable until `AppState` became drivable.** Moving the stub's `currentState` from a constant to a getter plus an emitter is what makes "posts in the background, not in the foreground" a test rather than a hope.
+
+### Verified from the package source, not from memory
+
+- `getLastNotificationResponse` is the current API; `getLastNotificationResponseAsync` is **deprecated** and merely calls it. Only the current spelling is stubbed, so a test cannot reach for a shim.
+- `opensAppToForeground` defaults to `true`, and the package documents that a `false` action does **not** reach the listener when the app is killed. Now set explicitly with the reason: it is what gives the cold-start read something to find.
+
+### Harness work this required, and one gap it exposed
+
+Three new stubs (`notifications-stub`, `event-bus-stub`, `AppState`) and two harness options (`notificationResponse`, `notificationPermissionStatus`), all because `mount` resets every slot — so a value set before mounting is gone before the component runs. That reset is correct, and it means the only way to say "the user tapped before JavaScript existed" is as part of the world the mount creates.
+
+Adding `MountedTree.act` fixed a gap that had been hiding in plain sight: nothing could drive an **external** stimulus into a mounted tree. Presses went through `act`; an SSE event or a notification tap did not, so the `setState` was applied but not flushed and the next assertion read stale state. Every such failure looks exactly like a product bug.
+
+`PermissionState` gained `deferredCount: 0`. It looked unnecessary — `deferredCountLabel(undefined)` returns a **truthy** string, so the banner rendered "undefined replies waiting for the connection" and all 13 banner tests still passed. A harness state that disagrees with the real shape turns a missing field into a visible lie and fails nothing.
+
+### Verification
+
+**1168 tests across 34 files** (from 1102 / 32). New: 33 `permission-provider`, 29 `notification-replies`, 4 `PermissionBanner` deferred-notice, plus the stub's own contract.
+
+Mutation verification: **31/31** (`mutate-batch14.mjs`), zero survivors. Three things the survivors taught:
+
+1. Two first-pass survivors were one gap: the **immediate-send** failure path and the **flush** failure path both existed, but only the flush was tested — and because deferring on immediate failure _triggers_ a flush retry, the flush's `setError` masked the immediate one. Fixed with a handler that fails once then succeeds, which separates them.
+2. A test that mounts twice cannot assert on the shared call log — the second mount resets it. Rewritten to assert on the mechanism instead: the cold-start slot is emptied.
+3. `deferReply`'s position-preserving replace was the _implementation_ being wrong, not the test. A test written from the stated principle caught it.
+
+One correction to an earlier claim in this document: I stated during the work that `PermissionProvider` was never rendered. It is — at `App.tsx:44`. My grep had only searched `src`.

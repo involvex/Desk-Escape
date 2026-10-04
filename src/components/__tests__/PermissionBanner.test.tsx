@@ -187,6 +187,58 @@ describe("PermissionBanner", () => {
     result.unmount();
   });
 
+  describe("a reply the user gave from a notification", () => {
+    test("says how many are waiting for the connection", async () => {
+      // The visible half of "never drop a tap". Before it, the reply was discarded and
+      // nothing was said: the OS had dismissed the notification, so the system recorded
+      // the interaction as handled while the agent stayed blocked on the prompt. The
+      // buttons here stay live — the tap has already been given, what is missing is a
+      // client to send it with, and disabling the in-app answers would take away the
+      // one route that still works.
+      const result = await render({
+        permission: { pending: pending(), deferredCount: 1 },
+      });
+
+      expect(result.text()).toContain("1 reply waiting for the connection");
+      result.unmount();
+    });
+
+    test("pluralises, because several can be outstanding", async () => {
+      // §4.9's queue: the agent blocks on requests in order, so more than one can be
+      // waiting at a time and a singular label would understate what is outstanding.
+      const result = await render({
+        permission: { pending: pending(), deferredCount: 3 },
+      });
+
+      expect(result.text()).toContain("3 replies waiting for the connection");
+      result.unmount();
+    });
+
+    test("says nothing when no reply is held", async () => {
+      // The ordinary case, and the one a label bug would hide: a stray "0 replies"
+      // would train the user to ignore the line that matters.
+      const result = await render({ permission: { pending: pending() } });
+
+      expect(result.text()).not.toContain("waiting for the connection");
+      result.unmount();
+    });
+
+    test("leaves the in-app decisions live while a reply is held", async () => {
+      // The point of the held reply is that it has not reached the agent. If the
+      // in-app buttons were disabled too, the request would be unanswerable from
+      // anywhere until the connection came back on its own.
+      const result = await render({
+        permission: { pending: pending(), deferredCount: 1 },
+      });
+
+      const buttons = result.byType("Pressable");
+      for (const button of buttons) {
+        expect(button.props.disabled).toBeFalsy();
+      }
+      result.unmount();
+    });
+  });
+
   test("disables every decision while a reply is in flight", async () => {
     // Pressing twice is how a permission gets answered twice, and the agent is
     // blocked on exactly one answer.

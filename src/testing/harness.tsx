@@ -23,6 +23,11 @@ import {
   type PermissionState,
   type TestConnection,
 } from "@/testing/context-holds";
+import {
+  seedColdStart,
+  setNotificationPermissionStatus,
+  type ResponseParts,
+} from "@/testing/notifications-stub";
 
 export { act, createRoot };
 export type { TestInstance };
@@ -57,6 +62,25 @@ export interface RenderOptions {
   project?: unknown;
   /** What `usePermission()` reports, for the approval banner. */
   permission?: Partial<PermissionState>;
+  /**
+   * A notification response waiting to be found, as a **cold start** would leave it.
+   *
+   * An option rather than a `seedColdStart` call before mounting, because `mount`
+   * resets every slot — including the notification one — so a value set beforehand is
+   * wiped before the component under test ever runs. That reset is the right default
+   * (nothing should leak between tests), which leaves an option as the only way to say
+   * "the user tapped a notification before JavaScript existed": it becomes part of the
+   * world the mount creates rather than something a test has to win a race against.
+   */
+  notificationResponse?: ResponseParts | null;
+  /**
+   * What `Notifications.getPermissionsAsync()` reports.
+   *
+   * An option for the same reason as `notificationResponse`: `mount` resets every slot,
+   * so a status set before mounting is gone by the time the component runs. Defaults
+   * to granted, which is the ordinary path — a test about permissions has to say so.
+   */
+  notificationPermissionStatus?: "granted" | "denied" | "undetermined";
   /** Pass one pre-seeded with `setQueryData` to drive a query's result. */
   queryClient?: QueryClient;
 }
@@ -75,6 +99,21 @@ export interface MountedTree {
   find: (type: string) => TestInstance;
   /** Fire `onPress` on a node. */
   press: (node: TestInstance) => Promise<void>;
+  /**
+   * Run `fn` inside `act`, so state updates it causes are flushed before the next
+   * assertion.
+   *
+   * For the stimuli that do not come from a press: an SSE event arriving, a
+   * notification being tapped, a WebSocket frame, a timer. Each of those is the
+   * outside world reaching into the tree, and each produces a `setState` — outside
+   * `act` that update is still applied but not flushed, so the assertion reads stale
+   * state and fails with a value that looks like a product bug rather than a harness
+   * one. The `act(...)` warning it also logs is the same problem stated out loud.
+   *
+   * Named `act` rather than something task-shaped so it reads as what it is: the
+   * harness's own primitive, not a way to fake a press.
+   */
+  act: (fn: () => void | Promise<void>) => Promise<void>;
   /** Press the nearest ancestor with an `onPress` of a node matching `label`. */
   pressText: (label: string) => Promise<void>;
   /**
@@ -183,6 +222,10 @@ function accessors(root: Root, queryClient: QueryClient): MountedTree {
     await invoke(node.props.onPress);
   };
 
+  const run = async (fn: () => void | Promise<void>) => {
+    await invoke(fn);
+  };
+
   /**
    * Walk up from a text node to the control that owns it.
    *
@@ -253,6 +296,7 @@ function accessors(root: Root, queryClient: QueryClient): MountedTree {
     text,
     find,
     press,
+    act: run,
     pressText,
     pressExact,
     pressAccessibility,
@@ -284,6 +328,14 @@ async function mount(
   // failure lands in an unrelated test, which is close to impossible to diagnose.
   resetTestContext();
   setTestContext(options);
+  // After the reset, and before the render, so the component's mount-time read finds
+  // it. The alternative — seeding before calling `mount` — is wiped by the reset above.
+  if (options.notificationResponse) {
+    seedColdStart(options.notificationResponse);
+  }
+  if (options.notificationPermissionStatus) {
+    setNotificationPermissionStatus(options.notificationPermissionStatus);
+  }
   let root!: Root;
   await act(async () => {
     root = createRoot({ textComponentTypes: ["Text", "FlatList"] });

@@ -120,6 +120,71 @@ export const TextInput = host<Record<string, unknown>>("TextInput");
 export const TouchableOpacity =
   host<Record<string, unknown>>("TouchableOpacity");
 
+/* -------------------------------------------------------------------------- */
+/* AppState                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** The foreground/background states the app distinguishes. */
+export type AppStateStatus = "active" | "background" | "inactive" | "unknown";
+
+let currentAppState: AppStateStatus = "active";
+const appStateListeners = new Set<(next: AppStateStatus) => void>();
+
+/**
+ * `AppState`, with a change event a test can drive.
+ *
+ * One of only two genuinely stateful things in this stub, and it earns its place:
+ * `PermissionContext` decides whether to post a notification on the strength of
+ * `appState !== "active"`, so a test of that branch has to be able to move the app
+ * between foreground and background. Hard-coding it would make the branch
+ * *unreachable* rather than untested, which is worse — the code would still read as
+ * covered.
+ *
+ * `currentState` is a getter, matching the real API. A test therefore has to go
+ * through {@link setAppState}: assigning to the property would change the value
+ * without firing the event, and the component under test would never learn of it.
+ */
+export const AppState = {
+  get currentState(): AppStateStatus {
+    return currentAppState;
+  },
+  addEventListener(
+    _type: "change",
+    listener: (next: AppStateStatus) => void,
+  ): { remove: () => void } {
+    appStateListeners.add(listener);
+    return {
+      remove: () => {
+        appStateListeners.delete(listener);
+      },
+    };
+  },
+};
+
+/**
+ * Move the app to `next` and tell every listener.
+ *
+ * Snapshots the listener set first: a listener may unsubscribe from inside its own
+ * callback, and mutating the set mid-iteration would skip the next one.
+ */
+export function setAppState(next: AppStateStatus): void {
+  currentAppState = next;
+  for (const listener of [...appStateListeners]) {
+    listener(next);
+  }
+}
+
+/** How many `AppState` listeners are registered, so a leak is assertable. */
+export function appStateListenerCount(): number {
+  return appStateListeners.size;
+}
+
+/** Put the app back in the foreground and drop every listener. */
+export function resetAppState(): void {
+  currentAppState = "active";
+  appStateListeners.clear();
+}
+
 /** Minimal `FlatList`: renders every item so row content can be asserted. */
 export interface FlatListProps<T> {
   data?: readonly T[] | null;
@@ -414,6 +479,7 @@ export const Platform = {
 export const IMPLEMENTED = [
   "ActivityIndicator",
   "Alert",
+  "AppState",
   "FlatList",
   "Platform",
   "Pressable",
@@ -458,6 +524,7 @@ export const reactNativeStub = new Proxy(
     FlatList,
     SectionList,
     TextInput,
+    AppState,
     StyleSheet,
     Alert: { alert: recordAlert },
     Animated,

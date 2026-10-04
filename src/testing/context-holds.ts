@@ -2,6 +2,9 @@ import type { PendingPermission, PermissionResponse } from "@/api/permissions";
 import type { ThemeName } from "@/types/opencode";
 import { themeDefinitions } from "@/theme/palettes";
 import { resetClipboard } from "@/testing/clipboard-stub";
+import { eventBusStub, resetEventBus } from "@/testing/event-bus-stub";
+import { resetNotifications } from "@/testing/notifications-stub";
+import { resetAppState } from "@/testing/react-native-stub";
 
 /**
  * Mutable slots the preloaded context mocks read from.
@@ -21,6 +24,15 @@ export interface TestConnection {
   activeDirectory: string | null;
   project: unknown;
   session: unknown;
+  /**
+   * The SSE bus.
+   *
+   * Present by default, and that is a change: it used to be absent, so
+   * `PermissionProvider`'s subscription returned early and every event-driven path
+   * in it — enqueue on ask, close on reply, post the notification — was untested
+   * without anyone noticing, because the effect looked exercised.
+   */
+  eventBus?: unknown;
   [key: string]: unknown;
 }
 
@@ -81,6 +93,27 @@ export interface ApiStub {
     calls: unknown[];
     handler: (body: unknown) => Promise<unknown>;
   };
+  /**
+   * `permission.reply` and `permission.request.list`.
+   *
+   * Both are here because the permission provider's whole job is these two calls:
+   * adopt what the server already considers pending, and answer one. Without them
+   * the client was not a client the provider could talk to, so every effect in it
+   * bailed and the module had no coverage.
+   *
+   * `reply` is a slot with a handler rather than a plain recorder, because a reply
+   * that *fails* is the interesting case — the provider clears the request on
+   * success and keeps it on failure, and that difference is the whole point of the
+   * `busy`/`error` pair the banner renders.
+   */
+  permissionReply: {
+    calls: unknown[];
+    handler: (body: unknown) => Promise<unknown>;
+  };
+  pendingPermissions: {
+    calls: unknown[];
+    handler: (body: unknown) => Promise<unknown>;
+  };
 }
 
 function emptyApi(): ApiStub {
@@ -93,6 +126,8 @@ function emptyApi(): ApiStub {
     vcsStatus: { calls: [], handler: async () => ({ data: [] }) },
     fileList: { calls: [], handler: async () => ({ data: [] }) },
     sessionDiff: { calls: [], handler: async () => [] },
+    permissionReply: { calls: [], handler: async () => undefined },
+    pendingPermissions: { calls: [], handler: async () => ({ data: [] }) },
   };
 }
 
@@ -101,6 +136,21 @@ let api: ApiStub = emptyApi();
 /** The recorded calls and the current handlers, for assertions and overrides. */
 export function apiStub(): ApiStub {
   return api;
+}
+
+/**
+ * A fresh fake client, independent of whatever the slot currently holds.
+ *
+ * For a test that has swapped the client out and needs a working one back. Reading
+ * `currentConnection().client` instead would return the `null` the test just set —
+ * which is the whole reason this exists, and a mistake that produces a test which
+ * appears to re-connect and does not.
+ *
+ * A fresh instance is safe even though the calls are shared: the namespaces close over
+ * the module-level `api`, so every client records into the same log.
+ */
+export function defaultClient(): unknown {
+  return fakeClient();
 }
 
 /** Answer `session.stats` with whatever `handler` returns. */
@@ -144,6 +194,31 @@ export function setDiffSources(parts: {
 }
 
 /**
+ * Answer `permission.request.list` with whatever `handler` returns.
+ *
+ * The default is `{ data: [] }`, which reads as "nothing outstanding" — so a test
+ * that does not care about rehydration takes the quiet path. Set it to a non-empty
+ * list to test adoption.
+ */
+export function setPendingPermissions(
+  handler: (body: unknown) => Promise<unknown>,
+): void {
+  api.pendingPermissions.handler = handler;
+}
+
+/**
+ * Answer `permission.reply`.
+ *
+ * Pass a handler that throws to reproduce a rejected approval, which is the case
+ * where the provider must keep the request in the queue rather than dropping it.
+ */
+export function setPermissionReply(
+  handler: (body: unknown) => Promise<unknown>,
+): void {
+  api.permissionReply.handler = handler;
+}
+
+/**
  * Clear the recorded calls, keeping the handlers.
  *
  * Called by `mount`, so a test always starts with a clean call log while keeping
@@ -163,6 +238,8 @@ export function resetClientCalls(): void {
   api.vcsStatus.calls = [];
   api.fileList.calls = [];
   api.sessionDiff.calls = [];
+  api.permissionReply.calls = [];
+  api.pendingPermissions.calls = [];
   permissionCalls.respond = [];
   permissionCalls.dismiss = 0;
   permissionCalls.clearError = 0;
@@ -215,6 +292,16 @@ function fakeClient() {
       },
     },
     permission: {
+      reply: (body: unknown) => {
+        api.permissionReply.calls.push(body);
+        return api.permissionReply.handler(body);
+      },
+      request: {
+        list: (body: unknown) => {
+          api.pendingPermissions.calls.push(body);
+          return api.pendingPermissions.handler(body);
+        },
+      },
       saved: {
         list: (body: unknown) => {
           api.savedPermissions.calls.push(body);
@@ -257,6 +344,7 @@ function connectedDefaults(): TestConnection {
     activeDirectory: "/repo",
     project: { id: "prj_test", worktree: "/repo" },
     session: { id: "ses_test", title: "Test session" },
+    eventBus: eventBusStub,
   };
 }
 
@@ -295,6 +383,12 @@ export function resetTestContext(): void {
   permissionState = defaultPermissionState();
   resetClientCalls();
   resetClipboard();
+  // The three stubs the permission provider reaches into directly. Without these in
+  // the reset, a posted notification or a driven app-state change survives into the
+  // next test and the failure looks like the next test's fault.
+  resetNotifications();
+  resetAppState();
+  resetEventBus();
 }
 
 /**
@@ -347,6 +441,16 @@ export interface PermissionState {
   busy: boolean;
   /** Last failure message, or `null`. */
   error: string | null;
+  /**
+   * Replies the user gave by tapping a notification while the app had no client.
+   *
+   * Present in the default rather than left out because the banner derives a string
+   * from it, and `deferredCountLabel(undefined)` is *not* `null` — it renders
+   * "undefined replies waiting for the connection". A state that silently disagrees
+   * with the real context shape turns a missing field into a visible lie, and no test
+   * fails, because nothing was wrong with the component.
+   */
+  deferredCount: number;
 }
 
 /** Calls the component made into `usePermission`, so a test can assert on them. */
@@ -357,7 +461,13 @@ export interface PermissionCalls {
 }
 
 function defaultPermissionState(): PermissionState {
-  return { pending: null, pendingCount: 0, busy: false, error: null };
+  return {
+    pending: null,
+    pendingCount: 0,
+    busy: false,
+    error: null,
+    deferredCount: 0,
+  };
 }
 
 let permissionState: PermissionState = defaultPermissionState();
