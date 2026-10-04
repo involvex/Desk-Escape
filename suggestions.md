@@ -753,7 +753,7 @@ The app lock is enforced as an **overlay on the workspace screen**. That is a di
 
 Replies are now **held** while the gate is up and released on unlock. The deferred queue from Batch 14 is reused rather than a second mechanism invented: unlocking is simply another reason a reply became sendable, and the flush effect already runs on that kind of transition.
 
-The predicate is `isLockGated` in `biometric-lock-state.ts`, shared with nothing else today but written so the screen and the provider cannot drift. It takes `biometricAvailable` as well as `lockState`, and **that is the part that prevents a hang**: the stored preference is a boolean the user set once, biometrics can be unenrolled in system settings afterwards, and `authenticate()` then returns `false` without ever leaving `"locked"`. Gating on `lockState` alone would hold every approval permanently, with the banner blaming a connection that is perfectly healthy. `lockState !== "unlocked"` is deliberate too - `"unlocking"` is the moment the user has *not* been authenticated yet, so it is the worst moment to send an approval.
+The predicate is `isLockGated` in `biometric-lock-state.ts`, shared with nothing else today but written so the screen and the provider cannot drift. It takes `biometricAvailable` as well as `lockState`, and **that is the part that prevents a hang**: the stored preference is a boolean the user set once, biometrics can be unenrolled in system settings afterwards, and `authenticate()` then returns `false` without ever leaving `"locked"`. Gating on `lockState` alone would hold every approval permanently, with the banner blaming a connection that is perfectly healthy. `lockState !== "unlocked"` is deliberate too - `"unlocking"` is the moment the user has _not_ been authenticated yet, so it is the worst moment to send an approval.
 
 `biometricAvailable` moved from a private probe in `WorkspaceScreen` into `useBiometricLock`, because two consumers now need it and two independent probes are two answers.
 
@@ -766,7 +766,7 @@ The old flush walked the whole snapshot while each successful send shrank the ve
 Two mutations survived the first sweep and both were honest:
 
 - The in-flight guard could not be reached, because a tap taken with a client present is sent **immediately** and never queues. Making the second tap's send fail is what puts an entry behind the in-flight head, and a hanging first send is what keeps it there. That test now exists.
-- The `cancelled` flag was suppressing `setError`, which meant a send that failed *because* the queue changed underneath it reported nothing at all. Dropped it: setting state after unmount is a no-op, so there was nothing to guard, and the silent failure was the cost.
+- The `cancelled` flag was suppressing `setError`, which meant a send that failed _because_ the queue changed underneath it reported nothing at all. Dropped it: setting state after unmount is a no-op, so there was nothing to guard, and the silent failure was the cost.
 
 ### 4. `removeDeferredReply` contradicted its own comment
 
@@ -792,3 +792,39 @@ One process note worth recording: `bun test` writes its summary lines to **stder
 - **The collapse comment overstates what collapse does.** It prevents rendering; `toDiffSections` still builds every `DiffRow` for every file on every 15s tick. Worth tightening given this file's care elsewhere not to claim measurements it did not make.
 - **§5.2 Phase 2** - no push endpoint exists on the server (116 routes, zero matching push/device/notification/subscribe), and `expo-task-manager` is not installed. Unresolved from the review.
 - **The server has a form surface the app ignores** - `GET /api/form`, `DELETE /api/session/{sessionID}/form/{formID}`. §5.2 listed question/form requests as missing and never noticed.
+
+---
+
+## Batch 16 - the three stability fixes left open by the review
+
+Batch 15 closed the review's four blocking findings and listed the rest as needing a decision. These are the decisions, taken.
+
+### A stale error survived a successful retry
+
+`deliverReply` cleared the entry on success but never `setError(null)`, so after a failed flush and then a successful one the banner went on reading "server said no" about a reply the agent had accepted. Proven in Batch 15's review with `deferred:0 err:server said no`.
+
+A test asserted the opposite, and its reasoning was not wrong so much as incomplete: _"silently clearing it would tell the user nothing went wrong"_ is exactly right while the reply is still failing and exactly wrong once it has gone through. Both halves are now pinned - a failure with no retry keeps its message, a failure the retry recovered from drops it.
+
+Clearing on _every_ success, not only a recovered one, is deliberate. The error is a duplicate of what the user already has: a reply that failed leaves its request in the visible queue, so the banner is already showing the outstanding work. Nothing is lost, and the alternative - tracking which request each message belongs to - is state for a label.
+
+### `respond()` rethrew into four `void` callers
+
+All three banner buttons and the harness were `void respond(...)`, so the rejection had no observer: the message reached the user through `error` and the same rejection became an unhandled rejection, which on a release build is a crash report about a permission the user was told had failed _and visibly failed_. `respond` now resolves on failure, with the error still set. The type comment says so, because "resolves" is surprising for an async function unless it is written down.
+
+Both directions are tested: resolving _and_ still reporting. A test that only asserted the resolution would pass just as well if the error had been swallowed, which is the same shape of bug as the `undefined` count in Batch 14.
+
+### Collapse now avoids building the rows, rather than hiding them
+
+The comment claimed a collapsed file's body "is never built", and it was wrong. `toDiffSections` built every `DiffRow` for every file, and the component then blanked `data` for the collapsed ones. Identical section list, completely different allocation - and this module runs on every 15-second refresh, so for a large diff it was building a row object for every line the user had folded away.
+
+`collapsed` is now an option on `toDiffSections`, checked _before_ the rows exist, and the component's separate `collapsed.has(...) ? [] : ...` mapping is gone. Counts deliberately still come from the hunks: counting the rows that were not built would show "+0 -0" in a folded file's header, which reads as a change the agent undid rather than one out of sight, and would disagree with the panel's own totals.
+
+The panel test that asserts a collapsed body disappears cannot tell the two implementations apart - both render the same. Only the pure-module tests can, so they assert on `rows.length`, and one asserts that expanding rebuilds them, because a one-directional predicate would fold a file permanently and nothing else would notice.
+
+### Verification
+
+**1193 tests across 34 files** (from 1187). New: 5 `toDiffSections` collapse tests, 1 `respond` contract test, 1 kept-failure test.
+
+Mutation verification: **8/8** (`mutate-batch16.mjs`), zero survivors. Two of the eight are the directions that matter most: clearing the error _before_ the send rather than after (6 failures, since it would wipe a genuine failure message), and counting from the built rows so a folded file reports zero.
+
+One housekeeping note: `suggestions.md` picked up a formatting-only change - prettier rewrites markdown emphasis from `*x*` to `_x*` - and added a trailing newline. Nothing in the commit path formats, so the cause is not pinned down; both files are `prettier --check` clean now, which is what `bun run check` requires, so the change was kept rather than reverted. Worth knowing that `bun run format` would reintroduce it either way.

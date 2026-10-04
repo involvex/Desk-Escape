@@ -246,9 +246,15 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
 
   // Derived rather than defaulted with `?? []`, because a fresh empty array on
   // every render is a new `useMemo` dependency and defeats the memo entirely.
+  //
+  // `collapsed` goes in *here* so `toDiffSections` never builds the rows for a folded
+  // file. Passing it and blanking them afterwards would leave the allocation in place,
+  // which is the part that costs: the list is virtualized, so hiding the views is
+  // cheap, but building a `DiffRow` for every line of every file on every 15s refresh
+  // is not.
   const sections = useMemo(
-    () => toDiffSections(fileDiffs ?? [], { untrackedPaths }),
-    [fileDiffs, untrackedPaths],
+    () => toDiffSections(fileDiffs ?? [], { untrackedPaths, collapsed }),
+    [fileDiffs, untrackedPaths, collapsed],
   );
   const visibleSections = useMemo(
     () => filterSections(sections, filter),
@@ -256,20 +262,13 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
   );
   const totals = useMemo(() => countTotals(sections), [sections]);
 
-  // A collapsed file contributes no rows, so its body is never built. That is the
-  // other half of why this panel stopped hanging: a 4,000-line diff behind ten
-  // collapsed headers renders ten headers.
-  //
   // `SectionList` takes each section flattened *plus* its rows
   // (`SectionListData<SectionT, ItemT> = SectionT & { data: ItemT[] }`), so the
   // section's own fields ride along rather than being nested under a key.
   const listSections = useMemo(
     () =>
-      visibleSections.map((section) => ({
-        ...section,
-        data: collapsed.has(section.path) ? [] : section.rows,
-      })),
-    [visibleSections, collapsed],
+      visibleSections.map((section) => ({ ...section, data: section.rows })),
+    [visibleSections],
   );
 
   const onToggle = useCallback(

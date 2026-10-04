@@ -123,6 +123,55 @@ describe("toDiffSections", () => {
   test("an empty diff produces no sections", () => {
     expect(toDiffSections([])).toEqual([]);
   });
+
+  test("a collapsed file has its rows never built, not built and hidden", () => {
+    // The distinction the whole `collapsed` option exists for. Both the caller-side
+    // version -- build every row, then blank them -- and this one render the same
+    // section list, so only the row count tells them apart. What differs is the
+    // allocation: on a 15s refresh over a large diff, building a `DiffRow` for every
+    // line of every file the user has folded away is the cost the virtualized list
+    // does not hide.
+    const collapsed = only(
+      toDiffSections([SAMPLE], { collapsed: new Set([SAMPLE.path]) }),
+    );
+
+    expect(collapsed.rows).toEqual([]);
+  });
+
+  test("only the collapsed file loses its rows", () => {
+    const sections = toDiffSections(
+      [file("a.ts", hunk("@@ @@", { type: "add", content: "x" })), SAMPLE],
+      { collapsed: new Set([SAMPLE.path]) },
+    );
+
+    expect(sections[0]?.rows.length).toBeGreaterThan(0);
+    expect(sections[1]?.rows).toEqual([]);
+  });
+
+  test("a collapsed file still reports its line counts", () => {
+    // Counting the rows that were not built would show "+0 −0" in the header, which
+    // reads as a change the agent undid rather than one the user folded away — and
+    // would quietly disagree with the panel's own totals.
+    const section = only(
+      toDiffSections([SAMPLE], { collapsed: new Set([SAMPLE.path]) }),
+    );
+
+    expect(section.counts).toEqual({ additions: 1, deletions: 1 });
+    expect(countTotals([section])).toEqual({ additions: 1, deletions: 1 });
+  });
+
+  test("expanding rebuilds the rows, so a folded body cannot stay empty", () => {
+    // Toggling goes through `toggleCollapsed`, which removes the path on the second
+    // press. If the predicate were ever one-directional the file would fold
+    // permanently, and nothing else would notice.
+    const collapsed = toggleCollapsed(new Set<string>(), SAMPLE.path);
+    expect(only(toDiffSections([SAMPLE], { collapsed })).rows.length).toBe(0);
+
+    const expanded = toggleCollapsed(collapsed, SAMPLE.path);
+    expect(
+      only(toDiffSections([SAMPLE], { collapsed: expanded })).rows.length,
+    ).toBeGreaterThan(0);
+  });
 });
 
 describe("countTotals", () => {

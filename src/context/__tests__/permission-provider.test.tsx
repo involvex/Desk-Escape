@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Text } from "react-native";
 
+import type { PermissionResponse } from "@/api/permissions";
+
 import {
   PermissionProvider,
   usePermission,
@@ -271,12 +273,20 @@ describe("a tap with no client", () => {
     result.unmount();
   });
 
-  test("retries a failed send, and keeps reporting why it first failed", async () => {
+  test("retries a failed send, and stops reporting a failure it has recovered from", async () => {
     // The immediate-failure path defers, which makes the flush effect retry at once.
     // That is the right behaviour — a blip should not need a reconnect — but it means
     // a test cannot tell the two `setError` calls apart unless the retry *succeeds*.
     // With the retry succeeding, the error still on screen can only have come from the
     // first failure.
+    //
+    // This test asserted the opposite once, and the reasoning was not wrong so much as
+    // incomplete: "silently clearing it would tell the user nothing went wrong" is
+    // exactly right while the reply is still failing, and exactly wrong once it has
+    // gone through. The banner went on reading "blip" at a permission the agent had
+    // accepted, which is the same class of stale claim as reporting a count nobody
+    // measured. Nothing is lost by clearing: a reply that genuinely failed leaves its
+    // request in the visible queue, so the banner is still showing the work.
     let attempts = 0;
     setPermissionReply(async () => {
       attempts += 1;
@@ -298,9 +308,32 @@ describe("a tap with no client", () => {
     expect(attempts).toBe(2);
     // Sent, so nothing is held any more...
     expect(result.text()).toContain("deferred:0");
-    // ...and the first failure is still on screen rather than being erased by a
-    // successful retry. Silently clearing it would tell the user nothing went wrong,
-    // which is the opposite of what happened.
+    // ...and the recovered-from failure is gone rather than left contradicting the
+    // reply the server accepted.
+    expect(result.text()).toContain("error:none");
+    expect(result.text()).not.toContain("blip");
+    result.unmount();
+  });
+
+  test("keeps reporting a failure that has not been retried", async () => {
+    // The other half of the pair, and the reason the clearing above is safe. While the
+    // reply is genuinely unsent the message must stay: this is the state the earlier
+    // comment was describing, and clearing it here would tell the user nothing went
+    // wrong while their approval is still unsent.
+    setPermissionReply(async () => {
+      throw new Error("blip");
+    });
+
+    const result = await mounted();
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    // Held, still unsent, and still saying why.
+    expect(result.text()).toContain("deferred:1");
     expect(result.text()).toContain("blip");
     result.unmount();
   });
@@ -884,6 +917,58 @@ describe("the app lock", () => {
 
     expect(replyArgs()).toMatchObject({ requestID: "per_1" });
     expect(result.text()).toContain("deferred:0");
+    result.unmount();
+  });
+});
+
+describe("the banner's own reply", () => {
+  test("resolves even when the send fails, so `void` callers cannot reject", async () => {
+    // Every `Pressable` in the banner is `onPress={() => void respond(...)}`, which has
+    // no rejection handler. While `respond` rethrew, a permission the user was told had
+    // failed also produced an unhandled rejection — a crash report about a failure the
+    // app had already handled correctly. The message reaches the user through `error`;
+    // the promise resolving is the fix, and no error information is lost.
+    setPermissionReply(async () => {
+      throw new Error("server said no");
+    });
+
+    const seen: string[] = [];
+    let callRespond!: (r: PermissionResponse) => Promise<void>;
+
+    function RejectProbe() {
+      // Captured rather than rendered behind a Pressable: this asserts the promise
+      // contract, so the probe hands the function out and the test drives it exactly
+      // the way a `void` caller does — fire it, then look at how it settled. The
+      // rendered text is the other half, since resolving is only acceptable if the
+      // failure still reaches the user.
+      const { respond, error } = usePermission();
+      callRespond = respond;
+      return <Text>{`error:${error ?? "none"}`}</Text>;
+    }
+
+    const result = await renderWithProviders(
+      <PermissionProvider>
+        <RejectProbe />
+      </PermissionProvider>,
+    );
+    await result.flush();
+    await emit(result, askedEvent({ id: "per_1" }));
+    await result.flush();
+
+    await result.act(async () => {
+      seen.push(
+        await callRespond("once").then(
+          () => "resolved",
+          () => "rejected",
+        ),
+      );
+    });
+    await result.flush();
+
+    expect(seen).toEqual(["resolved"]);
+    // And the failure is still reported, which is the part that matters: resolving is
+    // the fix for the unhandled rejection, not a way of swallowing the error.
+    expect(result.text()).toContain("error:server said no");
     result.unmount();
   });
 });

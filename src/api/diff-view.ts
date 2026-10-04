@@ -90,37 +90,57 @@ export function countTotals(sections: readonly DiffSection[]): DiffCounts {
 /**
  * Flatten files into sections of keyed rows.
  *
- * The row keys combine the path, the hunk index and the line index rather than
- * the hunk header alone, because two hunks in one file can carry the same header
+ * The row keys combine the path, the hunk index and the line index rather than the
+ * hunk header alone, because two hunks in one file can carry the same header
  * after a rename or a mode change -- and a duplicate key silently drops a row.
+ *
+ * `collapsed` is honoured *here* rather than by the caller blanking `rows`
+ * afterwards. The two look equivalent from the outside and only one is: this runs
+ * before the rows exist, so a collapsed file never allocates them. A caller that
+ * filters afterwards still builds every `DiffRow` for every file on every
+ * 15-second refresh, and for a large diff that allocation is what dominates -- the
+ * virtualized list hides the *views*, not the model.
  */
 export function toDiffSections(
   files: readonly FileDiffEntry[],
-  options: { untrackedPaths?: ReadonlySet<string> } = {},
+  options: {
+    untrackedPaths?: ReadonlySet<string>;
+    collapsed?: ReadonlySet<string>;
+  } = {},
 ): DiffSection[] {
   const untracked = options.untrackedPaths ?? new Set<string>();
+  const collapsed = options.collapsed ?? new Set<string>();
 
   return files.map((file) => {
     const rows: DiffRow[] = [];
-    file.hunks.forEach((hunk, hunkIndex) => {
-      rows.push({
-        kind: "hunk",
-        key: `${file.path}#${hunkIndex}`,
-        header: hunk.header,
-      });
-      hunk.lines.forEach((line, lineIndex) => {
+
+    // Skipped off the same predicate `toggleCollapsed` maintains, so expanding a file
+    // rebuilds it on the next render and cannot leave a permanently empty body.
+    if (!collapsed.has(file.path)) {
+      file.hunks.forEach((hunk, hunkIndex) => {
         rows.push({
-          kind: "line",
-          key: `${file.path}#${hunkIndex}.${lineIndex}`,
-          hunkHeader: hunk.header,
-          line,
+          kind: "hunk",
+          key: `${file.path}#${hunkIndex}`,
+          header: hunk.header,
+        });
+        hunk.lines.forEach((line, lineIndex) => {
+          rows.push({
+            kind: "line",
+            key: `${file.path}#${hunkIndex}.${lineIndex}`,
+            hunkHeader: hunk.header,
+            line,
+          });
         });
       });
-    });
+    }
 
     return {
       path: file.path,
       title: file.path,
+      // Counted from the hunks, never from `rows`. A collapsed file still reports its
+      // additions and deletions in its header; counting the rows that were not built
+      // would report "+0 -0" for a file the user had merely folded away, which reads as
+      // a change that was undone rather than one that is out of sight.
       counts: countHunkLines(file.hunks),
       untracked: untracked.has(file.path),
       rows,

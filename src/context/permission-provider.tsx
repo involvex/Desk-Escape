@@ -57,6 +57,14 @@ export interface PermissionContextValue {
   pending: PendingPermission | null;
   /** Outstanding requests behind `pending`. `0` when nothing else is waiting. */
   pendingCount: number;
+  /**
+   * Answer the request at the head of the queue.
+   *
+   * Resolves even when the send fails: the failure is reported through `error`, which
+   * is where the banner reads it from. It does not reject, so a caller that fires it
+   * without awaiting — every `Pressable` in the banner does — cannot turn a permission
+   * the user was already told had failed into an unhandled rejection.
+   */
   respond: (response: PermissionResponse) => Promise<void>;
   dismiss: () => void;
   /** `true` while a reply is in flight, so the banner can disable its buttons. */
@@ -286,6 +294,20 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
       setDeferred((current) =>
         removeDeferredReply(current, intent.permissionId),
       );
+      // And the error is cleared here, which is the whole of the fix for a stale
+      // message: after a failed flush and then a successful retry, the banner used to
+      // go on reading "server said no" about a reply that had since gone through. The
+      // earlier reasoning against clearing — "silently clearing it would tell the user
+      // nothing went wrong" — is right about the *failed* state and wrong about this
+      // one, because by here something has gone right.
+      //
+      // Clearing on every success, including one that never followed a failure, is
+      // deliberate. The error is a duplicate of information the user already has: a
+      // reply that failed leaves its request in the visible queue, so the request the
+      // banner is showing *is* the outstanding work. Nothing is lost by dropping the
+      // sentence, and the alternative — tracking which request each message belongs to
+      // — is state for a label.
+      setError(null);
     },
     [],
   );
@@ -487,8 +509,17 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         });
         setQueue((current) => removeById(current, answered.id));
       } catch (replyError) {
+        // Set in context, not rethrown.
+        //
+        // Every caller is `onPress={() => void respond(...)}`, so the rejection had no
+        // observer: the message reached the user through `error` and the same rejection
+        // became an unhandled rejection, which on a release build is a crash report
+        // about a permission the user was told had failed *and visibly failed*. One
+        // channel for reporting is the fix, not a lost error.
+        //
+        // The request stays in the queue either way, so the banner keeps showing it and
+        // the buttons stay live for another attempt.
         setError(toOpenCodeError(replyError).message);
-        throw replyError;
       } finally {
         setBusy(false);
       }
