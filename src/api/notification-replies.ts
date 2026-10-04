@@ -188,6 +188,13 @@ export function isSameNotification(
 /* Deferred replies                                                           */
 /* -------------------------------------------------------------------------- */
 
+/** Why a reply is being held rather than sent. */
+export type DeferredReason =
+  /** There is no client to send it with. */
+  | "no-client"
+  /** The app lock is up; the user has not been authenticated yet. */
+  | "locked";
+
 /** A reply committed to by a tap, waiting for a client that can send it. */
 export interface DeferredReply {
   permissionId: string;
@@ -195,6 +202,15 @@ export interface DeferredReply {
   response: PermissionResponse;
   /** Which button was pressed, for a message that says so. */
   action: PermissionAction;
+  /**
+   * Why it is waiting.
+   *
+   * Recorded per entry rather than once for the queue because the two reasons call for
+   * different words, and telling the user "waiting for the connection" while the
+   * connection is fine and the *lock* is up is a confident wrong answer to the only
+   * question the banner is there to answer.
+   */
+  reason: DeferredReason;
 }
 
 /**
@@ -235,15 +251,21 @@ export function pendingReply(
   return deferred.find((entry) => entry.permissionId === permissionId) ?? null;
 }
 
-/** Drop one permission's held reply. Returns the same array if it was not held. */
+/**
+ * Drop one permission's held reply. Returns the same array if it was not held.
+ *
+ * The identity case is the point, not a nicety. Every reply that sends immediately
+ * clears itself through this function, and an immediate send holds nothing — so
+ * returning a copy would schedule a state update and re-run the flush effect on every
+ * notification tap, changing no value. React cannot tell the two apart, so the cost
+ * is real and the change is invisible.
+ */
 export function removeDeferredReply(
   deferred: readonly DeferredReply[],
   permissionId: string,
-): DeferredReply[] {
-  if (!pendingReply(deferred, permissionId)) {
-    return [...deferred];
-  }
-  return deferred.filter((entry) => entry.permissionId !== permissionId);
+): readonly DeferredReply[] {
+  const next = deferred.filter((entry) => entry.permissionId !== permissionId);
+  return next.length === deferred.length ? deferred : next;
 }
 
 /** The permissions with a reply waiting, in the order they were tapped. */
@@ -255,14 +277,29 @@ export function deferredIds(deferred: readonly DeferredReply[]): string[] {
  * How many replies are waiting, as a phrase the banner can show.
  *
  * `null` rather than an empty string when nothing is held, so the caller renders
- * nothing and leaves no gap — the same convention as `queueDepthLabel`.
+ * nothing and leaves no gap -- the same convention as `queueDepthLabel`.
+ *
+ * `count` is typed as possibly absent rather than trusting the caller, because the
+ * failure this shape guards against is real and already happened once: a harness state
+ * missing the field passed `undefined`, every comparison below was false, and the
+ * banner rendered "undefined replies waiting for the connection" while all of its
+ * tests still passed. A non-number now returns `null`, so a missing field renders
+ * nothing instead of a lie.
+ *
+ * `reason` is the reason the *head* entry is held, because that is the one actually
+ * blocking the send and the one the user can act on. With mixed reasons the head is
+ * the honest answer; the count still reports every entry, so nothing is hidden by the
+ * simplification.
  */
-export function deferredCountLabel(count: number): string | null {
-  if (count === 0) {
+export function deferredCountLabel(
+  count: number | undefined,
+  reason?: DeferredReason | null,
+): string | null {
+  if (typeof count !== "number" || !Number.isFinite(count) || count <= 0) {
     return null;
   }
-  if (count === 1) {
-    return "1 reply waiting for the connection";
-  }
-  return `${count} replies waiting for the connection`;
+  const noun = count === 1 ? "reply" : "replies";
+  return reason === "locked"
+    ? `${count} ${noun} waiting for the app to be unlocked`
+    : `${count} ${noun} waiting for the connection`;
 }

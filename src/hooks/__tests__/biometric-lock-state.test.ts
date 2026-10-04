@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  isLockGated,
   nextLockState,
   type AppPhase,
   type BiometricLockState,
@@ -18,6 +19,59 @@ import {
 const LOCKED: BiometricLockState = "locked";
 const UNLOCKED: BiometricLockState = "unlocked";
 const UNLOCKING: BiometricLockState = "unlocking";
+
+// ---------------------------------------------------------------------------
+// Is the lock actually in the way?
+// ---------------------------------------------------------------------------
+
+describe("isLockGated", () => {
+  const gated = (over: Partial<Parameters<typeof isLockGated>[0]> = {}) =>
+    isLockGated({
+      lockState: LOCKED,
+      biometricAvailable: true,
+      initialized: true,
+      ...over,
+    });
+
+  test("a locked app with working biometrics is gated", () => {
+    expect(gated()).toBe(true);
+  });
+
+  test("an unlocked app is not", () => {
+    // The ordinary case, and the one that must not change: holding a reply here would
+    // wedge the app for every user who does not use the lock.
+    expect(gated({ lockState: UNLOCKED })).toBe(false);
+  });
+
+  test("a prompt on screen counts as gated", () => {
+    // `"unlocking"` is the moment the user has *not* been authenticated yet, so it is
+    // the worst moment to send an approval. Note this is deliberately wider than the
+    // workspace overlay's `=== "locked"`, which must stay narrow so it does not cover
+    // the prompt it triggers.
+    expect(gated({ lockState: UNLOCKING })).toBe(true);
+  });
+
+  test("a device that cannot authenticate is not gated, and does not hang", () => {
+    // The trap. The stored preference is a boolean the user set once, and biometrics
+    // can be unenrolled in system settings afterwards. `authenticate()` then returns
+    // false without ever leaving `"locked"`, so gating on the lock state alone would
+    // hold every permission reply forever with no way to release them — the agent
+    // blocked, the user with no button that helps.
+    //
+    // This is why the predicate takes `biometricAvailable` and why the workspace
+    // overlay has always required it too.
+    expect(gated({ biometricAvailable: false })).toBe(false);
+    expect(gated({ biometricAvailable: false, lockState: UNLOCKING })).toBe(
+      false,
+    );
+  });
+
+  test("nothing is gated before the preference has loaded", () => {
+    // `lockState` defaults to `"unlocked"` pre-load, so this matches the screen's
+    // condition rather than adding a rule. Asserted so the two cannot diverge.
+    expect(gated({ initialized: false })).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Re-arming on background

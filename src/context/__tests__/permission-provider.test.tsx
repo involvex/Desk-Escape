@@ -129,6 +129,7 @@ function render(options?: RenderOptions) {
         <Text>{`pending:${value.pending?.id ?? "none"}`}</Text>
         <Text>{`count:${value.pendingCount}`}</Text>
         <Text>{`deferred:${value.deferredCount}`}</Text>
+        <Text>{`reason:${value.deferredReason ?? "none"}`}</Text>
         <Text>{`error:${value.error ?? "none"}`}</Text>
       </>
     );
@@ -757,6 +758,296 @@ describe("the event stream", () => {
     await result.flush();
 
     expect(result.text()).toContain("count:0");
+    result.unmount();
+  });
+});
+
+/**
+ * The app lock, and replies taken from a notification while it is up.
+ *
+ * The lock is a *display* gate: it covers the workspace with an overlay, so it hides
+ * the session without stopping the app from acting. A notification action is not
+ * displayed by the app at all, so it sailed straight past — tapping "Allow" answered
+ * the agent with the lock up, which is the one ordering that makes the lock decorative.
+ *
+ * These tests hold the reply instead, and release it on unlock.
+ */
+describe("the app lock", () => {
+  const LOCKED = { biometricLock: { lockState: "locked" } } as const;
+  const UNLOCKED = { biometricLock: { lockState: "unlocked" } } as const;
+
+  test("holds a reply given while the app is locked", async () => {
+    const result = await mounted({ ...LOCKED });
+
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    expect(apiStub().permissionReply.calls).toHaveLength(0);
+    expect(result.text()).toContain("deferred:1");
+    // Still visible in the banner, so the request is not invisible while it waits.
+    expect(result.text()).toContain("pending:per_1");
+    result.unmount();
+  });
+
+  test("names the lock as the reason, rather than blaming the connection", async () => {
+    // The only phrase available to the banner used to be "waiting for the
+    // connection". Here the connection is fine, so that sentence would send the user
+    // to repair something that is not broken — and it is the one wait that ends
+    // without them touching a setting at all.
+    const result = await mounted({ ...LOCKED });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    expect(result.text()).toContain("reason:locked");
+    result.unmount();
+  });
+
+  test("sends the held reply as soon as the user unlocks", async () => {
+    // Holding is only acceptable because it is temporary. This is the transition the
+    // policy depends on, and the reason it can reuse the deferred queue rather than
+    // inventing a second mechanism: unlocking is just another reason a reply became
+    // sendable.
+    const result = await mounted({ ...LOCKED });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+    expect(apiStub().permissionReply.calls).toHaveLength(0);
+
+    await result.rerender({ ...UNLOCKED });
+    await result.flush();
+
+    expect(replyArgs()).toMatchObject({ requestID: "per_1", decision: "once" });
+    expect(result.text()).toContain("deferred:0");
+    result.unmount();
+  });
+
+  test("holds while a biometric prompt is on screen", async () => {
+    // `"unlocking"` is the moment the user has not been authenticated yet, so it is
+    // the worst moment to send an approval. Wider than the workspace overlay's own
+    // check, deliberately: an overlay during the prompt would cover it.
+    const result = await mounted({
+      biometricLock: { lockState: "unlocking" },
+    });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    expect(apiStub().permissionReply.calls).toHaveLength(0);
+    result.unmount();
+  });
+
+  test("does not hold on a device that cannot authenticate", async () => {
+    // The hang this avoids. The stored preference survives the user unenrolling their
+    // fingerprint in system settings; `lockState` then stays "locked" forever because
+    // `authenticate()` returns false before it ever changes. Gating on the lock state
+    // alone would hold every approval permanently, with the banner blaming a connection
+    // that is perfectly healthy.
+    const result = await mounted({
+      biometricLock: { lockState: "locked", biometricAvailable: false },
+    });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    expect(replyArgs()).toMatchObject({ requestID: "per_1" });
+    expect(result.text()).toContain("deferred:0");
+    result.unmount();
+  });
+
+  test("sends immediately when the lock is off", async () => {
+    // The control for the four above: the default path must be untouched, or this
+    // policy would silently disable notifications for every user without the lock.
+    const result = await mounted({ ...UNLOCKED });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    expect(replyArgs()).toMatchObject({ requestID: "per_1" });
+    expect(result.text()).toContain("deferred:0");
+    result.unmount();
+  });
+});
+
+/**
+ * Flushing more than one held reply.
+ *
+ * The previous implementation looped over the whole snapshot while each successful send
+ * shrank the state it was iterating, which cannot be made safe by checking a `cancelled`
+ * flag: `setDeferred` schedules a render, React serves it on the Scheduler's
+ * `MessageChannel` (a macrotask), and the loop's next iteration resumes in a microtask.
+ * The next send could therefore start before the cleanup ran, and the re-run the
+ * shrinking state triggers would send the same entry twice — the server accepts the
+ * first and rejects the second, which the user sees as their approval bouncing back.
+ *
+ * It does not reproduce under this harness, and that is exactly why it needed a test
+ * rather than another attempt at reasoning: `act` flushes React synchronously, so the
+ * cleanup always wins. A passing test here is not evidence the loop was safe. It is
+ * now head-only, so this pins the outcome rather than the hazard — and it covers the
+ * case the old suite never reached, where two replies are held and a client appears.
+ */
+describe("flushing several held replies", () => {
+  test("sends each held reply exactly once, in the order they were tapped", async () => {
+    const result = await mounted({ connection: { client: null } });
+
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await tap(result, {
+      action: "reject",
+      permissionId: "per_2",
+      sessionId: "ses_1",
+    });
+    await tap(result, {
+      action: "always-allow",
+      permissionId: "per_3",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+    expect(result.text()).toContain("deferred:3");
+
+    await result.rerender({ connection: { client: defaultClient() } });
+    await result.flush();
+
+    const calls = apiStub().permissionReply.calls as {
+      requestID: string;
+      decision: string;
+    }[];
+    // Three taps, three sends. A duplicate here is the bug this file was written for.
+    expect(calls).toHaveLength(3);
+    // Order is load-bearing: the agent is blocked on the head of its own queue, so
+    // answering out of order is a no-op that leaves the turn stuck.
+    expect(calls.map((call) => call.requestID)).toEqual([
+      "per_1",
+      "per_2",
+      "per_3",
+    ]);
+    expect(calls.map((call) => call.decision)).toEqual([
+      "once",
+      "reject",
+      "always",
+    ]);
+    expect(result.text()).toContain("deferred:0");
+    result.unmount();
+  });
+
+  test("stops at the first failure and keeps the rest held", async () => {
+    // One failure must not discard what is behind it. The failed entry stays visible
+    // in the banner and is retried on a later connect; the ones after it are untouched.
+    let attempts = 0;
+    setPermissionReply(async () => {
+      attempts += 1;
+      throw new Error("server said no");
+    });
+
+    const result = await mounted({ connection: { client: null } });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_2",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    await result.rerender({ connection: { client: defaultClient() } });
+    await result.flush();
+
+    expect(attempts).toBe(1);
+    expect(result.text()).toContain("server said no");
+    expect(result.text()).toContain("deferred:2");
+    result.unmount();
+  });
+
+  test("does not re-send the head while its first send is still in flight", async () => {
+    // The guard the comment above says `act` cannot test for, and it turns out a
+    // hanging send *is* the way to reach it.
+    //
+    // The earlier reasoning was that `act` flushes React synchronously, so a re-run
+    // always follows a completed send. That is true only because the stub resolves
+    // immediately. Hold the reply open and the effect re-runs with the head unchanged
+    // and its send still outstanding — a new tap appends behind it, `deferred` changes,
+    // and without the in-flight set the same entry is sent twice. That is the one
+    // interleaving `act` does not paper over, and it is the production one.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // `per_1` hangs; `per_2` fails. Both details are load-bearing. A hanging send is
+    // the only way to have the head still in flight; a *failing* send is the only way
+    // a later tap lands in the deferred queue behind it, because a tap taken with a
+    // client present is sent immediately and never queues at all.
+    setPermissionReply(async (body) => {
+      if ((body as { requestID: string }).requestID === "per_1") {
+        await gate;
+        return;
+      }
+      throw new Error("server said no");
+    });
+
+    const result = await mounted({ connection: { client: null } });
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_1",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    // Connecting starts the send, which then hangs.
+    await result.rerender({ connection: { client: defaultClient() } });
+    await result.flush();
+    const sendsOf = (id: string) =>
+      (apiStub().permissionReply.calls as { requestID: string }[]).filter(
+        (call) => call.requestID === id,
+      );
+    expect(sendsOf("per_1")).toHaveLength(1);
+
+    // A second tap whose send fails, so it joins the queue behind the in-flight head
+    // and re-runs the effect while that head is still outstanding.
+    await tap(result, {
+      action: "allow",
+      permissionId: "per_2",
+      sessionId: "ses_1",
+    });
+    await result.flush();
+
+    // Still exactly one send of `per_1`. A second is the duplicate the server rejects
+    // as already-answered, surfacing as the user's approval bouncing back.
+    expect(sendsOf("per_1")).toHaveLength(1);
+    expect(result.text()).toContain("deferred:2");
+
+    // Let the held send finish; the queue then drains.
+    await result.act(async () => {
+      release();
+      await gate;
+    });
+    await result.flush();
+
+    expect(sendsOf("per_1")).toHaveLength(1);
     result.unmount();
   });
 });

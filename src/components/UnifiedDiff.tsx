@@ -48,6 +48,12 @@ interface UnifiedDiffProps {
  * the only reason to have the panel open. 15s is a compromise: `useFileStatus`
  * already polls the same endpoint at 30s, and a shorter interval would double the
  * server's VCS work for a screen that is usually closed.
+ *
+ * The interval only ever runs while the panel is open. `WorkspaceScreen` mounts this
+ * component unconditionally and hides it with `pointerEvents`, so "mounted" is not
+ * "wanted": without the `visible` gate in `useWorkspaceDiff` below, a panel that is
+ * never opened still fetched all three endpoints every 15s and rebuilt the whole row
+ * model, which is the one cost the note above describes and the one this avoids.
  */
 const AUTO_REFRESH_MS = 15_000;
 
@@ -145,18 +151,24 @@ async function loadSessionDiff(
  * `session.diff`. V2 also throws instead of returning `{ data, error }`, so
  * both branches are handled explicitly rather than by inspecting `.error`.
  *
+ * `visible` is part of `enabled` and nothing else. The caller mounts this component
+ * whether or not the panel is showing, so without it the query would run -- and
+ * `refetchInterval` would keep running -- against a screen nobody is looking at. Three
+ * requests every 15s, one of which lists every path in the workspace, is not a price
+ * worth paying for a panel that is usually closed.
+ *
  * The session fallback is deliberately *not* run through `withUntracked`: it
  * reports the changes this session made rather than the working tree, so
  * subtracting the VCS status from it would be subtracting the wrong set.
  */
-function useWorkspaceDiff() {
+function useWorkspaceDiff(visible: boolean) {
   const { client: rawClient, activeDirectory, sessionId } = useConnection();
   // The connection context still carries the pre-migration client type; narrow
   // it to the V2 surface this panel depends on.
   const client: OpenCodeClient | null = rawClient;
 
   return useQuery({
-    enabled: Boolean(client),
+    enabled: Boolean(client) && visible,
     queryKey: ["workspace-diff", activeDirectory ?? "default", sessionId],
     refetchInterval: AUTO_REFRESH_MS,
     queryFn: async (): Promise<WorkspaceDiff> => {
@@ -223,7 +235,7 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
     isLoading,
     isRefetching,
     refetch,
-  } = useWorkspaceDiff();
+  } = useWorkspaceDiff(visible);
   const fileDiffs = diff?.files;
   const untrackedPaths = diff?.untrackedPaths;
   const { width: screenWidth } = useWindowDimensions();

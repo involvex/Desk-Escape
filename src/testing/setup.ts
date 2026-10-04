@@ -16,6 +16,7 @@ import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { collectNamedImports } from "./source-imports";
 import {
+  currentBiometricLock,
   currentConnection,
   currentPermission,
   currentProject,
@@ -161,6 +162,23 @@ mock.module("@/context/ConnectionContext", () => ({
 mock.module("@/context/PermissionContext", () => ({
   usePermission: () => currentPermission(),
   PermissionProvider: ({ children }: { children: unknown }) => children,
+}));
+
+/**
+ * The biometric app lock.
+ *
+ * The real provider reaches for `expo-local-authentication` and `expo-secure-store`,
+ * so it cannot be mounted here. It is mocked because `PermissionProvider` now reads it:
+ * a reply taken from a notification is held while the lock is up, and without this the
+ * provider would throw for want of a provider rather than for want of a lock.
+ */
+mock.module("@/context/BiometricLockContext", () => ({
+  useBiometricLockContext: () => ({
+    ...currentBiometricLock(),
+    authenticate: async () => true,
+    setBiometricLockEnabled: async () => {},
+  }),
+  BiometricLockProvider: ({ children }: { children: unknown }) => children,
 }));
 
 /**

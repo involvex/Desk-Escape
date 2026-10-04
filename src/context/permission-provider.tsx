@@ -33,12 +33,15 @@ import {
   classifyPermissionResponse,
   deferReply,
   removeDeferredReply,
+  type DeferredReason,
   type DeferredReply,
   type NotificationResponseLike,
   type PermissionIntent,
 } from "@/api/notification-replies";
 import { useConnection } from "@/context/ConnectionContext";
+import { useBiometricLockContext } from "@/context/BiometricLockContext";
 import { usePreferences } from "@/context/PreferencesContext";
+import { isLockGated } from "@/hooks/biometric-lock-state";
 import {
   ensureNotificationPermissions,
   notifyPermissionRequest,
@@ -70,6 +73,14 @@ export interface PermissionContextValue {
    * banner shows it as "1 reply waiting for the connection"; `0` when there are none.
    */
   deferredCount: number;
+  /**
+   * Why the head reply is held, or `null`.
+   *
+   * Separate from `deferredCount` so the banner can name the actual blocker. Without it
+   * the only available phrase is "waiting for the connection", which is a confident
+   * wrong answer whenever the connection is fine and the lock is up.
+   */
+  deferredReason: DeferredReason | null;
 }
 
 const PermissionContext = createContext<PermissionContextValue | undefined>(
@@ -79,6 +90,21 @@ const PermissionContext = createContext<PermissionContextValue | undefined>(
 export function PermissionProvider({ children }: { children: ReactNode }) {
   const { client: v2Client, activeDirectory, eventBus } = useConnection();
   const { autoApprovePermissions } = usePreferences();
+  const { lockState, biometricAvailable, initialized } =
+    useBiometricLockContext();
+
+  /**
+   * Whether an approval given from a notification must wait for the user to unlock.
+   *
+   * The app lock is enforced as an overlay on the workspace screen, which is a *display*
+   * gate: it hides the session but does not stop the app from acting. So before this,
+   * tapping "Allow" on a notification answered the agent with the lock up -- the prompt
+   * would be on screen while the approval was already sent, which is the one ordering
+   * that makes the lock decorative. Asking `isLockGated` rather than testing
+   * `lockState` is what keeps this in step with what the screen actually shows; see
+   * that function for why "enabled" and "gated" are different questions.
+   */
+  const lockGated = isLockGated({ lockState, biometricAvailable, initialized });
   const [queue, setQueue] = useState<PendingPermission[]>([]);
   /**
    * Ids the user has already been told about, so a replayed
@@ -91,6 +117,26 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
    * handler, never during render.
    */
   const announcedRef = useRef<Set<string>>(new Set());
+
+  /**
+   * Notification ids already acted on.
+   *
+   * A response can reach the app by two routes at once: read from the cold-start slot
+   * and handed to the listener. Read-after-register is deliberate -- it is what closes
+   * the gap between the two -- so the overlap is designed in, and this is what makes it
+   * safe. Two replies for one tap would have the server accept the first and reject the
+   * second, and the rejection would surface as an error on an approval the user
+   * genuinely gave.
+   *
+   * Keyed on the OS's notification id, matching `isSameNotification` and the package's
+   * own `determineNextResponse`, so a repeat is recognisable however it arrives.
+   *
+   * Grows with the number of notifications the user acted on, which is bounded by how
+   * many they tapped -- and a response for a notification already handled is wrong every
+   * time, so there is nothing to gain from forgetting one. Reset with the connection
+   * for the same reason as `announcedRef`.
+   */
+  const handledNotificationsRef = useRef<Set<string>>(new Set());
 
   // Derived, not stored: the queue is the single source of truth, so there is
   // no way for the two to drift.
@@ -105,8 +151,20 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
    * Held in state rather than a ref because the count is reported to the banner, and
    * because the flush effect must re-run when it changes. A ref would need a second
    * source of truth to drive the render.
+   *
+   * `readonly` because every operation on it is a whole-array replacement, and because
+   * `removeDeferredReply` returns its input unchanged when nothing matched -- which only
+   * typechecks against a state that accepts a value it is not obliged to copy.
    */
-  const [deferred, setDeferred] = useState<DeferredReply[]>([]);
+  const [deferred, setDeferred] = useState<readonly DeferredReply[]>([]);
+
+  /**
+   * Permissions with a send currently outstanding.
+   *
+   * Not state: nothing renders from it, and the flush effect must not re-run when it
+   * changes or it would send again on purpose.
+   */
+  const inFlightRef = useRef<Set<string>>(new Set());
   const [appState, setAppState] = useState<AppStateStatus>(
     AppState.currentState,
   );
@@ -233,26 +291,6 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
   );
 
   /**
-   * Notification ids already acted on.
-   *
-   * A response can reach the app by two routes at once: read from the cold-start slot
-   * and handed to the listener. Read-after-register is deliberate — it is what closes
-   * the gap between the two — so the overlap is designed in, and this is what makes it
-   * safe. Two replies for one tap would have the server accept the first and reject
-   * the second, and the rejection would surface as an error on an approval the user
-   * genuinely gave.
-   *
-   * Keyed on the OS's notification id, matching `isSameNotification` and the package's
-   * own `determineNextResponse`, so a repeat is recognisable however it arrives.
-   *
-   * Grows with the number of notifications the user acted on, which is bounded by how
-   * many they tapped — and a response for a notification already handled is wrong every
-   * time, so there is nothing to gain from forgetting one. Reset with the connection
-   * for the same reason as `announcedRef`.
-   */
-  const handledNotificationsRef = useRef<Set<string>>(new Set());
-
-  /**
    * Act on a notification response.
    *
    * One path for both delivery routes — a live tap and a cold-start re-read — so the
@@ -308,15 +346,22 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (!v2Client) {
+      if (!v2Client || lockGated) {
         // Held, not dropped. `deferReply` is keyed on the permission, so a replayed
         // notification for the same request replaces rather than doubles up.
+        //
+        // The lock is checked here for the same reason the client is: it is a reason the
+        // reply cannot be sent *yet*, and the deferred queue is already the place where
+        // such replies go. The flush below sends it the moment the user authenticates,
+        // so this is a delay of seconds rather than a lost tap -- and the reason is
+        // recorded so the banner can say which of the two it is waiting on.
         setDeferred((current) =>
           deferReply(current, {
             permissionId,
             sessionId,
             response: intent.response,
             action: intent.action,
+            reason: lockGated ? "locked" : "no-client",
           }),
         );
         return;
@@ -332,12 +377,13 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
             sessionId,
             response: intent.response,
             action: intent.action,
+            reason: "no-client",
           }),
         );
         setError(toOpenCodeError(replyError).message);
       }
     },
-    [deliverReply, v2Client],
+    [deliverReply, lockGated, v2Client],
   );
 
   useEffect(() => {
@@ -365,46 +411,59 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
   }, [handleNotificationResponse]);
 
   /**
-   * Send everything that was tapped while there was no client.
+   * Send what is held, one entry per effect run.
    *
-   * Runs whenever the client appears, which is the transition that makes the held
-   * replies sendable. Cleared entry by entry as each succeeds, so one failure does
-   * not discard the rest and the next reconnect retries only what is still held.
+   * Head-only rather than a loop over the whole snapshot, and that is the point rather
+   * than an optimisation. The previous version walked the array while each successful
+   * send shrank the very state it was iterating: `setDeferred` schedules a render, React
+   * serves it on the Scheduler's `MessageChannel` -- a macrotask -- while the loop's
+   * next iteration resumes in a microtask. The next send could therefore begin before
+   * the cleanup that sets `cancelled`, and the re-run that the shrinking state triggers
+   * would send the same entry twice. The server accepts the first and rejects the
+   * second, which reaches the user as their approval bouncing back.
+   *
+   * It does not reproduce under this harness, and that is the part worth recording.
+   * `act` flushes React synchronously, so the cleanup always wins the race and a test
+   * passing here was never evidence the loop was safe. Sending only the head makes it
+   * structurally impossible -- there is never a second entry in flight -- and the
+   * in-flight set covers the one way a re-run can still overlap: the queue changing for
+   * some *other* reason, such as a new tap, while a send is outstanding.
    */
   useEffect(() => {
-    if (!v2Client || deferred.length === 0) {
+    if (!v2Client || lockGated || deferred.length === 0) {
       return;
     }
 
-    let cancelled = false;
+    const entry = deferred[0];
+    if (!entry || inFlightRef.current.has(entry.permissionId)) {
+      return;
+    }
+    inFlightRef.current.add(entry.permissionId);
+
     void (async () => {
-      for (const entry of deferred) {
-        if (cancelled) return;
-        try {
-          await deliverReply(v2Client, {
-            kind: "action",
-            permissionId: entry.permissionId,
-            sessionId: entry.sessionId,
-            action: entry.action,
-            response: entry.response,
-            notificationId: "",
-          });
-        } catch (replyError) {
-          if (!cancelled) {
-            setError(toOpenCodeError(replyError).message);
-          }
-          // Left in the queue deliberately. The request is also in the visible queue,
-          // so the user can answer it in the app; holding it costs nothing and a
-          // later reconnect retries it.
-          return;
-        }
+      try {
+        await deliverReply(v2Client, {
+          kind: "action",
+          permissionId: entry.permissionId,
+          sessionId: entry.sessionId,
+          action: entry.action,
+          response: entry.response,
+          notificationId: "",
+        });
+        // Cleared on success only, inside `deliverReply`: a failure keeps it held,
+        // where the banner shows why and a later connect retries it.
+      } catch (replyError) {
+        // Unconditional, deliberately. The previous version suppressed this when the
+        // effect had been cleaned up, which meant a send that failed *because* the queue
+        // changed underneath it reported nothing at all -- the user watched their reply
+        // sit held with no explanation. Setting state after unmount is a no-op, so there
+        // is nothing to guard.
+        setError(toOpenCodeError(replyError).message);
+      } finally {
+        inFlightRef.current.delete(entry.permissionId);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [v2Client, deferred, deliverReply]);
+  }, [lockGated, v2Client, deferred, deliverReply]);
 
   const respond = useCallback(
     async (response: PermissionResponse) => {
@@ -448,6 +507,14 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, []);
 
+  /**
+   * Why the head entry is held, and so what the banner says it is waiting on.
+   *
+   * The head, because that is the entry actually blocking the send and the one the
+   * user can unblock. With mixed reasons the count still reports every entry, so
+   * nothing is hidden by naming only the first.
+   */
+  const deferredReason = deferred[0]?.reason ?? null;
   const value = useMemo(
     () => ({
       pending,
@@ -458,11 +525,17 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
       error,
       clearError,
       deferredCount: deferred.length,
+      // Read from the binding above rather than recomputed, so the dependency list
+      // says what this actually reads. Recomputing `deferred[0]?.reason` inline would
+      // need `deferred` itself in the list, which would rebuild the value on every
+      // unrelated change to the array.
+      deferredReason,
     }),
     [
       busy,
       clearError,
       deferred.length,
+      deferredReason,
       dismiss,
       error,
       pending,

@@ -1,6 +1,5 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import * as LocalAuthentication from "expo-local-authentication";
 import {
   useCallback,
   useEffect,
@@ -107,7 +106,6 @@ export function WorkspaceScreen() {
   const [slashDraft, setSlashDraft] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTargetId, setSearchTargetId] = useState<string | null>(null);
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [revertState, dispatchRevert] = useReducer(
@@ -119,8 +117,13 @@ export function WorkspaceScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const { lockState, authenticate, initialized, appActive } =
-    useBiometricLockContext();
+  const {
+    lockState,
+    authenticate,
+    initialized,
+    appActive,
+    biometricAvailable,
+  } = useBiometricLockContext();
 
   // --- Undo / revert -------------------------------------------------------
   //
@@ -186,14 +189,6 @@ export function WorkspaceScreen() {
         }),
     });
   }, [clearRevertMutation]);
-
-  useEffect(() => {
-    void (async () => {
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-      setBiometricAvailable(hasHardware && isEnrolled);
-    })();
-  }, []);
 
   useEffect(() => {
     if (

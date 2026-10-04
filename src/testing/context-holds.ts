@@ -1,4 +1,5 @@
 import type { PendingPermission, PermissionResponse } from "@/api/permissions";
+import type { DeferredReason } from "@/api/notification-replies";
 import type { ThemeName } from "@/types/opencode";
 import { themeDefinitions } from "@/theme/palettes";
 import { resetClipboard } from "@/testing/clipboard-stub";
@@ -356,6 +357,7 @@ export function setTestContext(next: {
   connection?: Partial<TestConnection>;
   project?: unknown;
   permission?: Partial<PermissionState>;
+  biometricLock?: Partial<TestBiometricLock>;
 }): void {
   if (next.theme) {
     themeName = next.theme;
@@ -373,6 +375,9 @@ export function setTestContext(next: {
   if (next.permission) {
     permissionState = { ...permissionState, ...next.permission };
   }
+  if (next.biometricLock) {
+    biometricLock = { ...biometricLock, ...next.biometricLock };
+  }
 }
 
 /** Restore the defaults between tests so nothing leaks across them. */
@@ -381,6 +386,7 @@ export function resetTestContext(): void {
   connection = connectedDefaults();
   currentProjectValue = { id: "prj_test", worktree: "/repo" };
   permissionState = defaultPermissionState();
+  biometricLock = defaultBiometricLock();
   resetClientCalls();
   resetClipboard();
   // The three stubs the permission provider reaches into directly. Without these in
@@ -422,6 +428,45 @@ export function currentConnection(): TestConnection {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Biometric lock                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The app lock, as `PermissionProvider` and `WorkspaceScreen` read it.
+ *
+ * Mocked because the real provider reaches for `expo-local-authentication` and
+ * `expo-secure-store`, neither of which resolves outside a device build.
+ */
+export interface TestBiometricLock {
+  lockState: "locked" | "unlocking" | "unlocked";
+  /**
+   * Whether this device can authenticate at all.
+   *
+   * The default is `true`, so `isLockGated` is false purely because the lock is
+   * *unlocked*. A test that wants the gate has to say so with `lockState`, and one that
+   * wants the no-hardware case has to say so with this — which is the distinction the
+   * stale-preference hang turns on.
+   */
+  biometricAvailable: boolean;
+  initialized: boolean;
+}
+
+function defaultBiometricLock(): TestBiometricLock {
+  return {
+    lockState: "unlocked",
+    biometricAvailable: true,
+    initialized: true,
+  };
+}
+
+let biometricLock: TestBiometricLock = defaultBiometricLock();
+
+/** The value `useBiometricLockContext()` returns. */
+export function currentBiometricLock(): TestBiometricLock {
+  return biometricLock;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Permissions                                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -451,6 +496,15 @@ export interface PermissionState {
    * fails, because nothing was wrong with the component.
    */
   deferredCount: number;
+  /**
+   * Why the head reply is held, or `null`.
+   *
+   * `null` in the default because with nothing held there is nothing to be waiting
+   * *for*. It is in the state rather than left out for the same reason
+   * `deferredCount` is: a missing field would reach `deferredCountLabel` as
+   * `undefined`, which renders a confident wrong phrase and fails nothing.
+   */
+  deferredReason: DeferredReason | null;
 }
 
 /** Calls the component made into `usePermission`, so a test can assert on them. */
@@ -467,6 +521,7 @@ function defaultPermissionState(): PermissionState {
     busy: false,
     error: null,
     deferredCount: 0,
+    deferredReason: null,
   };
 }
 

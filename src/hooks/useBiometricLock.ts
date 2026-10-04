@@ -34,6 +34,16 @@ function toPhase(status: AppStateStatus): AppPhase {
 export function useBiometricLock() {
   const [state, setState] = useState<BiometricLockState>("unlocked");
   const [initialized, setInitialized] = useState(false);
+  /**
+   * Whether this device can actually authenticate the user.
+   *
+   * Lives here rather than in `WorkspaceScreen`, which used to probe for it inline.
+   * Two consumers now need it and they must agree: the screen shows an overlay on
+   * `lockState`, and `PermissionProvider` holds replies on it. A second, independent
+   * probe is a second answer, and the failure mode of disagreeing is the worst one
+   * available — a visible gate with a hole behind it.
+   */
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
   // Exposed so the screen can hold off prompting until the app is actually
   // foregrounded. Re-locking on background means `state` becomes "locked" while
   // nothing is visible, and firing a biometric prompt then fails on iOS and looks
@@ -59,8 +69,14 @@ export function useBiometricLock() {
 
     void (async () => {
       const enabled = await getBiometricEnabled();
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       if (cancelled) return;
       enabledRef.current = enabled;
+      // Probed on every launch rather than cached with the preference, because the
+      // user can unenroll a fingerprint in system settings at any time. A cached `true`
+      // would leave `lockState` at "locked" with no way to authenticate.
+      setBiometricAvailable(hasHardware && isEnrolled);
       applyState(enabled ? "locked" : "unlocked");
       setInitialized(true);
     })();
@@ -127,5 +143,12 @@ export function useBiometricLock() {
     [applyState],
   );
 
-  return { state, authenticate, setEnabled, initialized, appActive };
+  return {
+    state,
+    authenticate,
+    setEnabled,
+    initialized,
+    appActive,
+    biometricAvailable,
+  };
 }

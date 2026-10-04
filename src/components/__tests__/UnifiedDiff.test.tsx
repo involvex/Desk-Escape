@@ -34,8 +34,18 @@ const ONE_UP_ONE_DOWN = [
   "+added line",
 ].join("\n");
 
-function render() {
-  return renderWithProviders(<UnifiedDiff onClose={ON_CLOSE} visible />);
+/**
+ * Render the panel.
+ *
+ * `visible` defaults to `true` so the tests below keep saying "the open panel"; the
+ * closed case is its own test, and there it has to be asked for explicitly — a helper
+ * that always opened the panel would make "a closed panel costs nothing" impossible to
+ * write.
+ */
+function render(visible = true) {
+  return renderWithProviders(
+    <UnifiedDiff onClose={ON_CLOSE} visible={visible} />,
+  );
 }
 
 beforeEach(() => {
@@ -169,6 +179,62 @@ describe("UnifiedDiff", () => {
     const options = query?.options as { refetchInterval?: unknown } | undefined;
     expect(options?.refetchInterval).toBe(15_000);
     result.unmount();
+  });
+
+  test("a closed panel asks the server for nothing", async () => {
+    // `WorkspaceScreen` mounts this component whether or not the panel is showing, so
+    // "mounted" is not "wanted". Gating on `visible` is what stops a panel nobody ever
+    // opens from fetching `vcs.diff`, `vcs.status` and `file.list` every 15 seconds --
+    // `file.list` being the expensive one, since it returns every path in the
+    // workspace. Asserted as call counts rather than output, because a closed panel
+    // renders its tree off-screen and would look identical either way.
+    let diffCalls = 0;
+    setDiffSources({
+      vcsDiff: async () => {
+        diffCalls += 1;
+        return { data: [diffEntry("src/tracked.ts", ONE_UP_ONE_DOWN)] };
+      },
+      vcsStatus: async () => ({ data: [] }),
+      fileList: async () => ({ data: [{ path: "src/tracked.ts" }] }),
+    });
+
+    const result = await render(false);
+    await result.flush();
+
+    expect(diffCalls).toBe(0);
+    // And the query is not merely idle but never registered with data, so there is
+    // nothing for the interval to re-run against.
+    const query = result.queryClient
+      .getQueryCache()
+      .find({ queryKey: ["workspace-diff", "/repo", "ses_test"] });
+    expect(query?.state.data).toBeUndefined();
+    result.unmount();
+  });
+
+  test("opening the panel fetches, so the gate is not simply broken", async () => {
+    // The counterpart to the test above, and the reason this file is worth having
+    // both halves: a gate that never opens looks exactly like a gate that works if
+    // nothing ever asserts the open case reaches the server.
+    let diffCalls = 0;
+    setDiffSources({
+      vcsDiff: async () => {
+        diffCalls += 1;
+        return { data: [diffEntry("src/tracked.ts", ONE_UP_ONE_DOWN)] };
+      },
+      vcsStatus: async () => ({ data: [] }),
+      fileList: async () => ({ data: [{ path: "src/tracked.ts" }] }),
+    });
+
+    const closed = await render(false);
+    await closed.flush();
+    expect(diffCalls).toBe(0);
+    closed.unmount();
+
+    const open = await render(true);
+    await open.flush();
+    expect(diffCalls).toBe(1);
+    expect(open.text()).toContain("src/tracked.ts");
+    open.unmount();
   });
 
   test("closing forgets the filter, so the panel reopens clean", async () => {

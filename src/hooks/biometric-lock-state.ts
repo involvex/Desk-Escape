@@ -12,6 +12,44 @@ export type BiometricLockState = "locked" | "unlocking" | "unlocked";
 export type AppPhase = "active" | "inactive" | "background";
 
 /**
+ * Whether the app lock is actually standing between the user and the app right now.
+ *
+ * This is the single definition of "the lock is on", and both the workspace overlay
+ * and the permission-reply hold ask it rather than reading `lockState` each. They
+ * cannot drift, which matters because they were written apart and had already drifted
+ * once: the screen gated on `lockState === "locked"`, the reply path gated on nothing
+ * at all.
+ *
+ * The three conditions are all load-bearing, and the middle one is the trap.
+ *
+ * - **`initialized`** — before the stored preference is read, `lockState` is
+ *   `"unlocked"` by default, so requiring it changes nothing and costs nothing. It is
+ *   here to mirror the screen exactly rather than to do work.
+ * - **`lockState !== "unlocked"`** — deliberately not `=== "locked"`. `"unlocking"`
+ *   means a biometric prompt is on screen, and that is the *worst* moment to send a
+ *   permission approval: the user has not been authenticated yet. The overlay's own
+ *   condition is the narrower `=== "locked"`, because an overlay during the prompt
+ *   would sit on top of it.
+ * - **`biometricAvailable`** — the one that prevents a hang. The stored preference is
+ *   a boolean the user set once, and biometrics can be unenrolled afterwards in system
+ *   settings. Then `authenticate()` returns `false` without ever leaving `"locked"`,
+ *   so gating replies on `lockState` alone would hold every approval forever with no
+ *   way to release them. The screen already guards this; without the guard here, a
+ *   stale preference would quietly break approvals rather than visibly fail.
+ */
+export function isLockGated(input: {
+  lockState: BiometricLockState;
+  biometricAvailable: boolean;
+  initialized: boolean;
+}): boolean {
+  return (
+    input.initialized &&
+    input.biometricAvailable &&
+    input.lockState !== "unlocked"
+  );
+}
+
+/**
  * Decides the lock state after the app changes phase.
  *
  * Two rules are easy to get wrong and both have bitten real implementations:

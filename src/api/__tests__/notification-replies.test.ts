@@ -227,6 +227,7 @@ describe("deferred replies", () => {
       sessionId: "ses_1",
       response: "once",
       action: "allow",
+      reason: "no-client",
       ...overrides,
     };
   }
@@ -294,11 +295,16 @@ describe("deferred replies", () => {
     expect(deferredIds(removeDeferredReply(list, "per_1"))).toEqual(["per_2"]);
   });
 
-  test("removing an unheld reply returns a copy rather than the same array", () => {
+  test("removing an unheld reply returns the same array, not a copy", () => {
+    // This asserted the opposite once, and the comment on the function claimed the
+    // behaviour the code did not have. The identity is the point: `deliverReply` clears
+    // every entry that sent immediately, and an immediate send holds nothing, so a copy
+    // here means a state update and a flush-effect re-run on every notification tap that
+    // change no value. React cannot distinguish the two, so the cost is paid silently.
     const list = deferReply([], reply());
     const removed = removeDeferredReply(list, "per_nothing");
     expect(removed).toEqual(list);
-    expect(removed).not.toBe(list);
+    expect(removed).toBe(list);
   });
 
   test("removing the reply for a request that succeeded is how it stops being sent", () => {
@@ -327,5 +333,32 @@ describe("deferredCountLabel", () => {
     // invite the user to wait; saying what it is waiting *for* invites them to fix the
     // connection.
     expect(deferredCountLabel(1)).toContain("connection");
+  });
+
+  test("names the lock rather than blaming the connection", () => {
+    // The reason the label takes one. Saying "waiting for the connection" while the
+    // connection is fine and the app lock is up sends the user to fix the wrong thing,
+    // and it is the one case where the wait ends without them touching a setting.
+    const label = deferredCountLabel(1, "locked");
+    expect(label).toBe("1 reply waiting for the app to be unlocked");
+    expect(label).not.toContain("connection");
+  });
+
+  test("falls back to the connection when no reason is given", () => {
+    // A missing reason must not produce a third, invented phrase.
+    expect(deferredCountLabel(2, null)).toContain("connection");
+    expect(deferredCountLabel(2, undefined)).toContain("connection");
+  });
+
+  test("says nothing at all when the count is missing", () => {
+    // This is the bug that made the banner print "undefined replies waiting for the
+    // connection" while every banner test still passed: `undefined` failed every
+    // comparison, so the guard fell through to the plural branch. The count is now
+    // typed as possibly-absent and non-numbers return `null`, so a context state
+    // missing the field renders nothing rather than a confident lie.
+    expect(deferredCountLabel(undefined)).toBeNull();
+    expect(deferredCountLabel(undefined, "locked")).toBeNull();
+    expect(deferredCountLabel(Number.NaN)).toBeNull();
+    expect(deferredCountLabel(-1)).toBeNull();
   });
 });

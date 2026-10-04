@@ -9,6 +9,15 @@ interface BiometricLockContextValue {
   initialized: boolean;
   /** False while the app is backgrounded or inactive. */
   appActive: boolean;
+  /**
+   * Whether this device can authenticate the user at all.
+   *
+   * Part of the context rather than probed by each consumer, because `PermissionProvider`
+   * needs it to decide whether to hold a reply taken from a notification, and two
+   * independent probes are two answers. See `isLockGated` for why the lock being
+   * "enabled" is not the same question.
+   */
+  biometricAvailable: boolean;
 }
 
 export const BiometricLockContext =
@@ -19,8 +28,14 @@ export function BiometricLockProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { state, authenticate, setEnabled, initialized, appActive } =
-    useBiometricLock();
+  const {
+    state,
+    authenticate,
+    setEnabled,
+    initialized,
+    appActive,
+    biometricAvailable,
+  } = useBiometricLock();
 
   return (
     <BiometricLockContext.Provider
@@ -30,6 +45,7 @@ export function BiometricLockProvider({
         setBiometricLockEnabled: setEnabled,
         initialized,
         appActive,
+        biometricAvailable,
       }}
     >
       {children}

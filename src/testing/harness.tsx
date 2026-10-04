@@ -21,6 +21,7 @@ import {
   resetTestContext,
   setTestContext,
   type PermissionState,
+  type TestBiometricLock,
   type TestConnection,
 } from "@/testing/context-holds";
 import {
@@ -62,6 +63,15 @@ export interface RenderOptions {
   project?: unknown;
   /** What `usePermission()` reports, for the approval banner. */
   permission?: Partial<PermissionState>;
+  /**
+   * The app lock, for the provider that holds replies while it is up.
+   *
+   * An option rather than a setter call before mounting for the reason
+   * `notificationResponse` gives: `mount` resets every slot, so the lock has to be part
+   * of the world the mount creates. Defaults to unlocked, so a test about permissions
+   * never has to think about it.
+   */
+  biometricLock?: Partial<TestBiometricLock>;
   /**
    * A notification response waiting to be found, as a **cold start** would leave it.
    *

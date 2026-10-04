@@ -728,3 +728,67 @@ Mutation verification: **31/31** (`mutate-batch14.mjs`), zero survivors. Three t
 3. `deferReply`'s position-preserving replace was the _implementation_ being wrong, not the test. A test written from the stated principle caught it.
 
 One correction to an earlier claim in this document: I stated during the work that `PermissionProvider` was never rendered. It is — at `App.tsx:44`. My grep had only searched `src`.
+
+---
+
+## Batch 15 - review findings on Batches 13 and 14
+
+A review of the two most recent commits found eight issues. Four are fixed here; the rest are listed at the end as still open, because each needs a decision rather than a patch.
+
+### 1. The diff panel fetched and rendered while closed (performance)
+
+`WorkspaceScreen.tsx` mounts `UnifiedDiff` unconditionally and hides it with `pointerEvents`. `useQuery` gated on `enabled: Boolean(client)` and never on `visible`, so a panel that was never opened still ran every 15 seconds:
+
+- `vcs.diff` - the working-tree diff
+- `vcs.status` - server-side git status
+- `file.list` - **every path in the workspace**
+
+and then rebuilt the entire row model through `toDiffSections`. Measured with a throwaway test: rendering `visible={false}` produced one `vcs.diff` call and the full tree, header and all rows. `file.list` is the sharp edge - in a large repo it is tens of thousands of paths, every 15 seconds, on a mobile client talking to a remote dev box.
+
+Fixed by threading `visible` into `useWorkspaceDiff` and gating on it. Every existing `UnifiedDiff` test rendered with `visible`, so the closed case had no coverage at all; there are now two tests, one per direction, because a gate that never opens looks identical to a gate that works if nothing asserts the open case reaches the server.
+
+### 2. The biometric lock did not gate notification replies (security)
+
+The app lock is enforced as an **overlay on the workspace screen**. That is a display gate: it hides the session without stopping the app from acting. `handleNotificationResponse` never consulted `lockState`, so tapping "Allow" or "Always Allow" on a notification answered the agent **with the lock up** - the prompt would be on screen while the approval was already sent. All three actions are also registered with `isAuthenticationRequired: false`, so the OS did not demand device auth either, and "Always Allow" writes a grant that outlives the session.
+
+Replies are now **held** while the gate is up and released on unlock. The deferred queue from Batch 14 is reused rather than a second mechanism invented: unlocking is simply another reason a reply became sendable, and the flush effect already runs on that kind of transition.
+
+The predicate is `isLockGated` in `biometric-lock-state.ts`, shared with nothing else today but written so the screen and the provider cannot drift. It takes `biometricAvailable` as well as `lockState`, and **that is the part that prevents a hang**: the stored preference is a boolean the user set once, biometrics can be unenrolled in system settings afterwards, and `authenticate()` then returns `false` without ever leaving `"locked"`. Gating on `lockState` alone would hold every approval permanently, with the banner blaming a connection that is perfectly healthy. `lockState !== "unlocked"` is deliberate too - `"unlocking"` is the moment the user has *not* been authenticated yet, so it is the worst moment to send an approval.
+
+`biometricAvailable` moved from a private probe in `WorkspaceScreen` into `useBiometricLock`, because two consumers now need it and two independent probes are two answers.
+
+### 3. The flush loop could double-send, and the harness could not see it
+
+The old flush walked the whole snapshot while each successful send shrank the very state it was iterating. `setDeferred` schedules a render; React serves it on the Scheduler's `MessageChannel` (a macrotask) while the loop's next iteration resumes in a microtask. The next send could therefore begin before the cleanup that set `cancelled`, and the re-run the shrinking state triggers would send the same entry twice - the server accepts the first and rejects the second, which reaches the user as their approval bouncing back.
+
+**It does not reproduce under this harness, and that is the finding.** `act` flushes React synchronously, so the cleanup always wins. The existing suite never reached the case either: two tests held exactly one entry, and the test holding two never connected a client. The flush is now **head-only** - one entry per effect run, with the next run driven by the state change - plus an in-flight set for the remaining way a re-run can overlap.
+
+Two mutations survived the first sweep and both were honest:
+
+- The in-flight guard could not be reached, because a tap taken with a client present is sent **immediately** and never queues. Making the second tap's send fail is what puts an entry behind the in-flight head, and a hanging first send is what keeps it there. That test now exists.
+- The `cancelled` flag was suppressing `setError`, which meant a send that failed *because* the queue changed underneath it reported nothing at all. Dropped it: setting state after unmount is a no-op, so there was nothing to guard, and the silent failure was the cost.
+
+### 4. `removeDeferredReply` contradicted its own comment
+
+The comment said "Returns the same array if it was not held"; the code returned `[...deferred]`. Since every reply that sends immediately clears itself through this function, and an immediate send holds nothing, the copy meant a state update and a flush-effect re-run on **every notification tap**, changing no value. There was a test asserting the copy, so the contradiction was pinned in both directions.
+
+### Also fixed
+
+- `deferredCountLabel` typed its count as required, so a context state missing the field fell through every comparison to the plural branch and rendered "undefined replies waiting for the connection". It now accepts `number | undefined` and returns `null` for anything non-numeric. That was the same class of bug as the `deferredCount` gap in Batch 14, reached a second way.
+- `handledNotificationsRef` was used 100 lines above its declaration. Correct at runtime, since effect callbacks run post-render, but it reads as a TDZ bug.
+
+### Verification
+
+**1187 tests across 34 files** (from 1168). New: 6 provider lock tests, 5 `isLockGated`, 3 `deferredCountLabel`, 2 `UnifiedDiff` closed-panel, 2 multi-entry flush.
+
+Mutation verification: **14/14** (`mutate-review.mjs`), zero survivors.
+
+One process note worth recording: `bun test` writes its summary lines to **stderr**, so a mutation script reading only stdout reports every mutation as a survivor. That produced one false "14/14 survived" run before it was caught. And the `edit` tool renders em dashes as `--` when reading, so copying a comment out of a read result silently converts them; the corruption was caught by diffing against `HEAD` and counting `U+2014` per file, which is now part of the routine for any change to a file containing non-ASCII.
+
+### Still open, pending a decision
+
+- **A stale error survives a successful retry.** After a failed flush and then a successful one, the banner still reads "server said no". `deliverReply` clears the entry on success but never `setError(null)`. The test at line 273 encodes this as intended - "silently clearing it would tell the user nothing went wrong" - which is right for the failed state and wrong for the retried one. Deliberate rather than by omission.
+- **`respond()` rethrows into four `void` callers.** Harmless today; one refactor from an unhandled rejection.
+- **The collapse comment overstates what collapse does.** It prevents rendering; `toDiffSections` still builds every `DiffRow` for every file on every 15s tick. Worth tightening given this file's care elsewhere not to claim measurements it did not make.
+- **§5.2 Phase 2** - no push endpoint exists on the server (116 routes, zero matching push/device/notification/subscribe), and `expo-task-manager` is not installed. Unresolved from the review.
+- **The server has a form surface the app ignores** - `GET /api/form`, `DELETE /api/session/{sessionID}/form/{formID}`. §5.2 listed question/form requests as missing and never noticed.

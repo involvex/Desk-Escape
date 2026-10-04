@@ -41,6 +41,7 @@ export function PermissionBanner() {
     error,
     clearError,
     deferredCount,
+    deferredReason,
   } = usePermission();
 
   const styles = useMemo(
@@ -145,7 +146,7 @@ export function PermissionBanner() {
       : "“Always” remembers this choice for the project.";
 
   const depthLabel = queueDepthLabel(pendingCount);
-  const deferredLabel = deferredCountLabel(deferredCount);
+  const deferredLabel = deferredCountLabel(deferredCount, deferredReason);
 
   return (
     <View style={styles.banner}>
