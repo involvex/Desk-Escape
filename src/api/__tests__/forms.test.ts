@@ -3,6 +3,7 @@ import type {
   FormAnswer,
   FormField,
   FormInfo,
+  OpenCodeClient,
   V2Event,
 } from "@opencode/client";
 
@@ -19,7 +20,10 @@ import {
   multiselectConstraintViolations,
   parseFormEvent,
   parseFormResolvedEvent,
+  pollForms,
+  selectPolledForm,
   visibleFields,
+  type PendingForm,
 } from "@/api/forms";
 
 /**
@@ -811,4 +815,142 @@ describe("isNumericField", () => {
       expect(isNumericField(field({ type }))).toBe(false);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// selectPolledForm
+// ---------------------------------------------------------------------------
+
+describe("selectPolledForm", () => {
+  const form = (id: string): PendingForm =>
+    ({
+      id,
+      sessionId: "ses",
+      title: id,
+      metadata: undefined,
+      fields: [],
+      receivedAt: "2026-01-01T00:00:00.000Z",
+    }) as PendingForm;
+
+  test("surfaces the first polled form when nothing is shown", () => {
+    expect(selectPolledForm(null, [form("a")])).toEqual(form("a"));
+  });
+
+  test("keeps a null slot when the poll returns nothing", () => {
+    expect(selectPolledForm(null, [])).toBeNull();
+  });
+
+  test("never replaces a form the user is already looking at", () => {
+    // This is the safety property the interval exists to uphold. A poll finding a
+    // different form while one is open must NOT swap them -- that would discard an
+    // in-progress answer. The new form is the event stream's responsibility.
+    expect(selectPolledForm(form("current"), [form("later")])).toEqual(
+      form("current"),
+    );
+  });
+
+  test("keeps the open form when the poll is empty", () => {
+    expect(selectPolledForm(form("current"), [])).toEqual(form("current"));
+  });
+
+  test("ignores a poll result whose id already matches the open form", () => {
+    // Same form, still pending server-side: the open one wins, so a second poll
+    // can never "re-show" the form the user dismissed via cancel/reply.
+    expect(selectPolledForm(form("current"), [form("current")])).toEqual(
+      form("current"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pollForms
+// ---------------------------------------------------------------------------
+
+function stubClient(
+  listImpl: (opts: Record<string, unknown>) => Promise<{ data: FormInfo[] }>,
+) {
+  return { form: { list: listImpl } } as unknown as OpenCodeClient;
+}
+
+describe("pollForms", () => {
+  const form = (id: string): FormInfo =>
+    ({
+      id,
+      sessionID: "ses_1",
+      title: id,
+      fields: [],
+    }) as unknown as FormInfo;
+
+  test("folds the poll through selectPolledForm", async () => {
+    // A poll while nothing is shown surfaces the first result. `toPendingForm`
+    // enriches the form (sessionId, receivedAt...), so assert by shape.
+    const client = stubClient(async () => ({ data: [form("a")] }));
+    const result = await pollForms(client, "/proj", null);
+    expect(result).toEqual(
+      expect.objectContaining({ id: "a", sessionId: "ses_1", title: "a" }),
+    );
+  });
+
+  test("does not clobber the current form", async () => {
+    const current = {
+      id: "current",
+      sessionId: "ses_1",
+      title: "c",
+      metadata: undefined,
+      fields: [],
+      receivedAt: "2026-01-01T00:00:00.000Z",
+    } as PendingForm;
+    const calls: Record<string, unknown>[] = [];
+    const client = stubClient(async (opts) => {
+      calls.push(opts);
+      return { data: [form("later")] };
+    });
+    expect(await pollForms(client, "/proj", current)).toEqual(current);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("passes the directory as a location scope", async () => {
+    let captured: Record<string, unknown> = {};
+    const client = stubClient(async (opts) => {
+      captured = opts;
+      return { data: [] };
+    });
+    await pollForms(client, "/proj", null);
+    expect(captured).toEqual({ location: { directory: "/proj" } });
+  });
+
+  test("omits the location scope when there is no directory", async () => {
+    let captured: Record<string, unknown> = {};
+    const client = stubClient(async (opts) => {
+      captured = opts;
+      return { data: [] };
+    });
+    await pollForms(client, null, null);
+    expect(captured).toEqual({});
+  });
+
+  test("swallows a transient failure and keeps the current form", async () => {
+    // Mirrors the cold-start read. The event stream still carries anything raised
+    // while the server was briefly unreachable, so a failed backstop poll must not
+    // clear what the user may already be answering.
+    const current = {
+      id: "current",
+      sessionId: "ses_1",
+      title: "c",
+      metadata: undefined,
+      fields: [],
+      receivedAt: "2026-01-01T00:00:00.000Z",
+    } as PendingForm;
+    const client = stubClient(async () => {
+      throw new Error("boom");
+    });
+    expect(await pollForms(client, "/proj", current)).toEqual(current);
+  });
+
+  test("stays null when there is nothing to poll and no current form", async () => {
+    const client = stubClient(async () => {
+      throw new Error("boom");
+    });
+    expect(await pollForms(client, "/proj", null)).toBeNull();
+  });
 });

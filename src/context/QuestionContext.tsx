@@ -5,15 +5,18 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { toOpenCodeError } from "@/api/opencode/errors";
 import {
   cancelForm,
+  FORM_POLL_INTERVAL_MS,
   listPendingForms,
   parseFormEvent,
   parseFormResolvedEvent,
+  pollForms,
   replyToForm,
   type PendingForm,
 } from "@/api/forms";
@@ -45,7 +48,12 @@ const QuestionContext = createContext<QuestionContextValue | undefined>(
 );
 
 export function QuestionProvider({ children }: { children: ReactNode }) {
-  const { activeDirectory, eventBus, client: v2Client } = useConnection();
+  const {
+    activeDirectory,
+    eventBus,
+    client: v2Client,
+    status,
+  } = useConnection();
   const [pending, setPending] = useState<PendingForm | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +98,36 @@ export function QuestionProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [v2Client, activeDirectory]);
+
+  // Backstop poll for events the WS could not deliver -- e.g. a form raised
+  // while the app was backgrounded and the JS thread suspended. Gated on
+  // `connected`: while reconnecting the cold-start read above is retriggered by
+  // the `v2Client` dependency anyway. `pendingRef` snapshots the latest pending
+  // so the interval never clobbers a form the user is answering; `selectPolledForm`
+  // enforces that either way. See `@/api/forms` and `docs/ARCHITECTURE.md` §5.2.
+  const pendingRef = useRef(pending);
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+
+  useEffect(() => {
+    if (status !== "connected" || !v2Client) return;
+
+    void pollForms(v2Client, activeDirectory, pendingRef.current).then(
+      setPending,
+    );
+    const id = setInterval(
+      () =>
+        void pollForms(v2Client, activeDirectory, pendingRef.current).then(
+          setPending,
+        ),
+      FORM_POLL_INTERVAL_MS,
+    );
+
+    return () => {
+      clearInterval(id);
+    };
+  }, [v2Client, activeDirectory, status]);
 
   const reply = useCallback(
     async (answer: FormAnswer) => {

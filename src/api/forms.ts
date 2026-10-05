@@ -329,6 +329,58 @@ export async function listPendingForms(
   return result.data.map((info) => toPendingForm(info));
 }
 
+/**
+ * How often the foreground, connected client re-reads the pending list as a
+ * safety net for `form.created` events that the WebSocket could not deliver --
+ * for example a form raised while the app was backgrounded and the JS thread
+ * suspended. This mirrors the existing health-ping cadence (see `use-reconnect`
+ * §3.4: 30 s) rather than inventing a new number to reason about. It is only a
+ * backstop; the live event stream is still the primary delivery path.
+ */
+export const FORM_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Merge a freshly-polled pending list into the in-memory one.
+ *
+ * This is the safety-critical rule: a poll must never clobber a form the user
+ * is already looking at. If the banner is showing `pending`, that form stays,
+ * regardless of what the server returns; a different form that the event stream
+ * failed to deliver while the app was backgrounded is a known, acceptable loss
+ * for this backstop (the stream picks it up on the next foreground connect),
+ * whereas replacing an in-progress answer with a poll result would be data loss.
+ *
+ * Otherwise, the first polled form surfaces (matching the cold-start read, which
+ * also takes `items[0]`).
+ */
+export function selectPolledForm(
+  current: PendingForm | null,
+  polled: PendingForm[],
+): PendingForm | null {
+  return current ?? polled[0] ?? null;
+}
+
+/**
+ * One backstop poll: re-read the pending list and fold it into `current` via
+ * `selectPolledForm`.
+ *
+ * Wraps `listPendingForms` so a transient failure -- the server is briefly
+ * unreachable, or backgrounded-suspension left a stale token -- does not tear the
+ * banner down. That mirrors the cold-start read, which also swallows; the event
+ * stream still carries anything created from here on.
+ */
+export async function pollForms(
+  client: OpenCodeClient,
+  directory: string | null | undefined,
+  current: PendingForm | null,
+): Promise<PendingForm | null> {
+  try {
+    const polled = await listPendingForms(client, directory);
+    return selectPolledForm(current, polled);
+  } catch {
+    return current;
+  }
+}
+
 /** Pending forms for one session. */
 export async function listSessionForms(
   client: OpenCodeClient,
