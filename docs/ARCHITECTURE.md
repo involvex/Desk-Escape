@@ -2,251 +2,495 @@
 
 Technical deep-dive into Desk Escape's internal design.
 
+Every claim in this document was checked against the source tree or a running
+server while writing it. Where a claim would need a live server to confirm, it
+says so rather than asserting it.
+
 ## High-Level Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    App.tsx (Root)                        │
-│  GestureHandlerRootView > KeyboardProvider > SafeArea    │
-│  > QueryClientProvider > ThemeProvider > Preferences     │
-│  > OrientationProvider > ConnectionProvider              │
-│  > BiometricLockProvider > PermissionProvider            │
-│  > AppShell (NavigationContainer + RootNavigator)        │
-└─────────────────────────────────────────────────────────┘
-                            │
-                ┌───────────┼───────────┐
-                ▼           ▼           ▼
-        ConnectionScreen  WorkspaceScreen  SettingsScreen
-                            │
-               ┌────────────┼────────────┐
-               ▼            ▼            ▼
-          AgentChat    TerminalPanel   FileDrawer
-               │            │            │
-               ▼            ▼            ▼
-          (React Query)  (xterm.js)  (OpenCode API)
-               │            │            │
-               └────────────┼────────────┘
-                            ▼
-                    @opencode-ai/sdk/client
-                            │
-                            ▼
-                   OpenCode Server (HTTP/SSE)
+┌──────────────────────────────────────────────────────────────┐
+│                          App.tsx                             │
+│  GestureHandlerRootView                                      │
+│    > KeyboardProvider                                        │
+│      > SafeAreaProvider                                      │
+│        > QueryClientProvider                                 │
+│          > ThemeProvider                                     │
+│            > PreferencesProvider                             │
+│              > SessionMetaProvider                           │
+│                > OrientationProvider                         │
+│                  > ConnectionProvider      ← owns the client  │
+│                    > BiometricLockProvider                   │
+│                      > PermissionProvider                     │
+│                        > QuestionProvider                    │
+│                          > RootNavigator                      │
+└──────────────────────────────────────────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+  ConnectionScreen      CursorConnectionScreen     ProviderPickerScreen
+                                ▼
+                        CursorSessionScreen
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+    WorkspaceScreen          SettingsScreen          StatsScreen
+        │                    SavedPermissionsScreen  PluginManagerScreen
+        │
+   ┌────┴─────┬──────────┬───────────┐
+   ▼          ▼          ▼           ▼
+ AgentChat TerminalPanel FileDrawer UnifiedDiff
+   │          │          │           │
+   ▼          ▼          ▼           ▼
+ React      PTY over    file /     diff
+ Query      WebSocket   status
+   │          │          │           │
+   └──────────┴──────────┴───────────┘
+                │
+                ▼
+      @opencode/client  2.0.22   (OpenCode **V2** HTTP + SSE)
+                │
+                ▼
+        OpenCode server
 ```
+
+Two things about this diagram are worth stating outright, because the previous
+version of this document got both wrong.
+
+**There is no `@opencode-ai/sdk` dependency.** The client package is
+[`@opencode/client`](https://www.npmjs.com/package/@opencode/client) v2.0.22, and
+it targets the V2 API. `@opencode-ai/sdk` was the V1 client and is not installed.
+
+**The UI does not speak the server's shape.** `src/types/domain.ts` holds an
+app-owned domain model, and its header states the rule: _nothing in that file may
+import from `@opencode/client`_. Server-specific shape changes are absorbed by
+`src/api/opencode/adapter.ts`, so both agent providers can satisfy one interface
+and the component layer never learns a server field was renamed.
 
 ## Navigation
 
-Desk Escape uses **React Navigation native stack** (not Expo Router). The navigation tree is defined in `src/navigation/RootNavigator.tsx`.
+Desk Escape uses **React Navigation native stack**, not Expo Router. The tree is
+in `src/navigation/RootNavigator.tsx` and has **nine** routes, not four.
+
+| Route              | Screen                   | Purpose                                                                               |
+| ------------------ | ------------------------ | ------------------------------------------------------------------------------------- |
+| `ProviderPicker`   | `ProviderPickerScreen`   | Choose OpenCode or Cursor. Initial route when the `showCursorAgents` preference is on |
+| `Connection`       | `ConnectionScreen`       | OpenCode server address, host, port, credentials                                      |
+| `CursorConnection` | `CursorConnectionScreen` | Cursor API key, repo, branch, model                                                   |
+| `CursorSessions`   | `CursorSessionScreen`    | Cursor session list                                                                   |
+| `Workspace`        | `WorkspaceScreen`        | Main workspace: chat, terminal, files, diff                                           |
+| `Settings`         | `SettingsScreen`         | Preferences, theme, lock, export                                                      |
+| `SavedPermissions` | `SavedPermissionsScreen` | Stored allow/deny rules                                                               |
+| `Stats`            | `StatsScreen`            | Token and cost totals per session                                                     |
+| `Plugins`          | `PluginManagerScreen`    | Plugin install and configuration                                                      |
+
+`headerShown: false` everywhere, with a custom header in `WorkspaceScreen`.
+`RootNavigator` renders a bare `ActivityIndicator` until `preferencesReady`, so
+the first route is not chosen before AsyncStorage has been read — picking a route
+from a not-yet-loaded preference is how you get a flash of the wrong screen.
+`initialRouteName` is conditional: `ProviderPicker` when Cursor agents are
+enabled, `Connection` otherwise.
+
+## Context Providers
+
+Eight context providers are composed in `App.tsx`, ordered so that no outer
+provider reads an inner one. Above them sit four non-context wrappers:
+`GestureHandlerRootView`, `KeyboardProvider`, `SafeAreaProvider` and
+`QueryClientProvider`.
+
+| Provider                | File                                   | Responsibility                                                                          |
+| ----------------------- | -------------------------------------- | --------------------------------------------------------------------------------------- |
+| `ThemeProvider`         | `src/context/ThemeContext.tsx`         | Theme, font scale, font family, system dark-mode sync. Persists to AsyncStorage.        |
+| `PreferencesProvider`   | `src/context/PreferencesContext.tsx`   | Feature flags and user preferences, including `showCursorAgents` and `preferencesReady` |
+| `SessionMetaProvider`   | `src/context/SessionMetaContext.tsx`   | Per-session display metadata that several panels read                                   |
+| `OrientationProvider`   | `src/context/OrientationContext.tsx`   | Orientation lock via `expo-screen-orientation`; exposes `isLandscape`                   |
+| `ConnectionProvider`    | `src/context/ConnectionContext.tsx`    | **Core state**: the client, active directory, session, project, status, attachments     |
+| `BiometricLockProvider` | `src/context/BiometricLockContext.tsx` | Face ID / fingerprint gate. Wraps `useBiometricLock` and publishes `biometricAvailable` |
+| `PermissionProvider`    | `src/context/permission-provider.tsx`  | Permission requests from SSE, replies, the deferred queue, notifications                |
+| `QuestionProvider`      | `src/context/QuestionContext.tsx`      | V2 form requests: pending list, answer map, reply and cancel                            |
+
+A ninth context, `TerminalBridgeContext`, is **not** in `App.tsx` — it is mounted
+per-workspace inside `WorkspaceScreen.tsx`, because the bridge is meaningless
+without a live PTY and should not survive leaving the workspace.
+
+### ConnectionProvider
+
+The central hub. It owns:
+
+- **Client lifecycle** — builds and caches an `OpenCodeClient` via
+  `createAuthenticatedClient`, keyed on `baseUrl + username + useAuth + password`.
+- **Location** — the active directory (project worktree), threaded to every call
+  that accepts one.
+- **Session selection** — `ensureSession` finds or creates, `selectSession`
+  switches, `deleteSession` removes and picks a successor.
+- **Status machine** — `disconnected → connecting → connected → error / reconnecting`.
+- **Persistence** — connection config, recent hosts, passwords in
+  `expo-secure-store`, last session id, last directory.
+- **Offline queue** — buffers prompts while disconnected and flushes on reconnect.
+- **Context attachments** — file paths attached to the next prompt.
+
+## The Agent Provider Abstraction
+
+`src/api/providers/` is the layer that lets the app talk to two different agent
+backends. It is the largest subsystem this document previously did not mention.
+
+`types.ts` defines `AgentProvider`, the single interface both backends satisfy:
 
 ```
-RootStack (NativeStackNavigator)
-├── Connection    — initial route, server address input
-├── Workspace     — main workspace (agent chat, terminal, files)
-├── Settings      — app preferences
-└── Plugins       — plugin manager
+connect / disconnect / testConnection
+listSessions / createSession / deleteSession / selectSession
+getMessages / sendPrompt / interruptSession
+subscribe(callback) -> unsubscribe
+getCurrentProject / listProjects / selectProject
+listCommands / executeCommand
 ```
 
-All screens use `headerShown: false` with a custom header in `WorkspaceScreen`. The `Connection` screen uses `navigation.replace()` to transition to `Workspace` without back navigation.
+Plus two capability flags, `supportsTerminal` and `supportsFileBrowser`, so the UI
+can hide a panel the active backend cannot honour rather than offering it and
+failing.
 
-## Context Provider Hierarchy
+Two implementations:
 
-The provider tree in `App.tsx` is ordered by dependency — outer providers don't depend on inner ones:
+| Directory                     | Backend                       | Notes                                                                |
+| ----------------------------- | ----------------------------- | -------------------------------------------------------------------- |
+| `src/api/providers/opencode/` | OpenCode server (V2 HTTP/SSE) | Full surface: terminal, file browser, commands, projects             |
+| `src/api/providers/cursor/`   | Cursor                        | Chat-focused; `supportsTerminal` and `supportsFileBrowser` are false |
 
-| Provider                | File                                   | Responsibility                                                                                                          |
-| ----------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `ThemeProvider`         | `src/context/ThemeContext.tsx`         | 7 color themes, font scaling, system dark mode sync. Persists to AsyncStorage.                                          |
-| `PreferencesProvider`   | `src/context/PreferencesContext.tsx`   | User preferences: auto-approve permissions, prompt presets, tool/thinking block collapse behavior.                      |
-| `OrientationProvider`   | `src/context/OrientationContext.tsx`   | Screen orientation lock (portrait/landscape/auto). Uses `expo-screen-orientation`.                                      |
-| `ConnectionProvider`    | `src/context/ConnectionContext.tsx`    | **Core state**: OpenCode client, session, project, connection status, reconnection, offline queue, context attachments. |
-| `BiometricLockProvider` | `src/context/BiometricLockContext.tsx` | Face ID / fingerprint lock gate. Wraps `useBiometricLock` hook.                                                         |
-| `PermissionProvider`    | `src/context/PermissionContext.tsx`    | Listens for agent permission requests via event bus, shows in-app banner or notification, responds on user action.      |
-
-### ConnectionContext (the central hub)
-
-This is the most complex context. It manages:
-
-- **Client lifecycle**: Creates/caches `OpencodeClient` instances via `createOpencodeClient()` with optional Basic Auth.
-- **Session management**: `ensureSession()` finds or creates a session. `selectSession()` switches. `deleteSession()` removes and picks the next available.
-- **Project switching**: `selectProject()` changes the active directory/worktree, fetches the project, and loads the first session for that project.
-- **Status machine**: `disconnected` → `connecting` → `connected` → `error` / `reconnecting`.
-- **Persistence**: Stores connection config, recent hosts (up to 5), passwords (via `expo-secure-store`), last session ID, and last directory in AsyncStorage/SecureStore.
-- **Offline queue**: Buffers prompts when disconnected, flushes on reconnection.
-- **Context attachments**: File paths attached to the next prompt for file-level context.
+Each provides its own `client.ts`, `event-bus.ts`, `hooks.ts` and
+`message-stream.ts`, so the two backends' very different event vocabularies stay
+confined to their own directory.
 
 ## API Layer (`src/api/`)
 
-### client.ts
+### Location scoping — `opencode/location.ts`
 
-Wraps `@opencode-ai/sdk/client`. Key functions:
+V1 threaded a flat `?directory=<path>` query parameter through nearly every call.
+V2 replaces it with a `location` object serialized as the deepObject parameter
+`?location[directory]=<path>`, passed **per call** rather than baked into the
+client.
 
-- `createAuthenticatedClient(config, password?)` — Creates or retrieves a cached SDK client. Adds Basic Auth header if `useAuth` is true.
-- `parseTarget(input)` — Parses a user-entered URL/host string into `{ baseUrl, host, port }`. Defaults to port 4096.
-- `testConnection(config, password?)` — Calls `client.config.get()` to verify server health.
-- `ensureSession(client, preferredSessionId?, directory?)` — Finds an existing session or creates one.
-- `clearClientCache(config?)` — Evicts cached clients on disconnect.
+Session endpoints are the exception. `session.get`, `session.prompt` and
+`message.list` take no location at all: a session's scope is fixed at creation
+(`SessionCreateInput.location`) and only changes via `session.move`. Passing a
+location there is not merely ignored — it is a schema error.
 
-### hooks.ts
+There is **no `src/api/directory.ts`**, which the previous version of this
+document described. `withLocation()` in `opencode/location.ts` replaced it.
 
-React Query hooks that bridge the SDK to the UI:
+### `opencode/` — the V2 boundary
 
-| Hook                                 | Purpose                                                                |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `useSessions()`                      | Lists sessions for the active directory                                |
-| `useSessionMessages(sessionId)`      | Fetches messages for a session (staleTime: Infinity, refetch on mount) |
-| `useProjects()`                      | Lists all projects                                                     |
-| `useCurrentProject()`                | Gets the current project for the active directory                      |
-| `useCommands()`                      | Lists available slash commands                                         |
-| `useOpenCodeConfig()`                | Gets server config                                                     |
-| `useSendPrompt(sessionId)`           | Sends a text prompt with context attachments                           |
-| `useExecuteCommand(sessionId)`       | Executes a slash command                                               |
-| `useSessionMessageStream(sessionId)` | Subscribes to SSE events and incrementally updates the message list    |
-| `useFileList(path)`                  | Lists files at a path                                                  |
-| `useFileStatus()`                    | Gets git status of files (modified/added/deleted)                      |
-| `useFilePatch(path)`                 | Reads a file's diff patch                                              |
+| File              | Role                                                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter.ts`      | Server shapes → domain shapes. `toChatMessage`, `toSession`, `toFileEntry`, `parseUnifiedDiff`, `toFileDiffEntry`, `markUntracked`, `indexFileStatuses`, `isDisplayableMessage` |
+| `transport.ts`    | `createAuthHeader` and `createV2Fetch` — Basic auth, plus pairing tokens                                                                                                        |
+| `config.ts`       | Resolved server configuration; folds V2's list of source documents                                                                                                              |
+| `errors.ts`       | `withOpenCodeErrors` and `toOpenCodeError`, so one failure shape everywhere                                                                                                     |
+| `file-content.ts` | File reads with size limits                                                                                                                                                     |
+| `location.ts`     | `withLocation`, `normalizeBaseUrl`                                                                                                                                              |
+| `plugins.ts`      | Plugin listing and install                                                                                                                                                      |
 
-### event-bus.ts
+### `client.ts`
 
-A lightweight SSE subscription manager. Uses `client.event.subscribe()` to receive a stream of events from the server. Registered listeners receive raw events. The bus is started on connection and stopped on disconnect.
+- `parseTarget(input)` — user-entered URL or host into `{ baseUrl, host, port }`,
+  defaulting to port 4096.
+- `buildConnectionConfig` / `getClientCacheKey` — config and cache identity.
+- `createAuthenticatedClient(config, password?)` — cached `OpenCode.make(...)`,
+  with `createV2Fetch` supplying the auth header.
+- `testConnection(config, password?)` — health probe via `client.config.get()`.
+- `ensureSession(client, preferredSessionId?, directory?)` — find or create.
+- `clearClientCache(config?)` — evict on disconnect.
+- `getWorktreeName`, `configToTargetUrl` — display helpers.
+- `PairingChallenge` / `PairingToken` — the pairing-code flow.
 
-### message-stream.ts
+### `hooks.ts`
 
-Processes SSE events into incremental message state updates:
+React Query hooks bridging the client to the UI:
 
-- `message.updated` — Upserts a message's info
-- `message.removed` — Removes a message
-- `message.part.updated` — Upserts a part (text delta appending, tool state changes)
-- `message.part.removed` — Removes a part
-- `session.status` / `session.idle` — Agent busy/idle state
-- `session.compacted` / `session.diff` / `command.executed` — Triggers full message refetch
+| Hook                                                                | Purpose                                               |
+| ------------------------------------------------------------------- | ----------------------------------------------------- |
+| `useSessions`                                                       | Sessions for the active location                      |
+| `useProjects` / `useCurrentProject`                                 | Projects and the current one                          |
+| `useCommands`                                                       | Slash commands                                        |
+| `useAgents` / `useModels` / `useProviders`                          | Agent and model catalogue                             |
+| `useCurrentAgent` / `useCurrentModel`                               | The active selections                                 |
+| `useSwitchAgent` / `useSwitchModel`                                 | Changing either                                       |
+| `useOpenCodeConfig` / `useUpdateShell`                              | Server config and shell settings                      |
+| `useFileList` / `useFileStatus` / `useFileContent` / `useFilePatch` | File browsing and diffs                               |
+| `useSessionMessages`                                                | Messages for a session                                |
+| `useSendPrompt` / `useInterruptSession`                             | Sending, and Stop                                     |
+| `useExecuteCommand`                                                 | Slash command execution                               |
+| `useSessionMessageStream`                                           | Subscribes to SSE and folds events into message state |
 
-### directory.ts
+### Event handling
 
-Utility: wraps an optional `directory` string into `{ query: { directory } }` for API calls. This scopes all OpenCode API calls to a specific project worktree.
+`event-bus.ts` owns one server subscription and fans events out to registered
+listeners, started on connect and stopped on disconnect. `message-stream.ts` turns
+those events into incremental state updates.
 
-### use-pty-session.ts
+V2 renamed the event vocabulary wholesale. The 34 event names the app branches on
+are grouped here by family rather than listed flat:
 
-Manages a PTY terminal session:
+| Family     | Events                                                                                                                |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| Text       | `session.text.started` / `.delta` / `.ended`                                                                          |
+| Reasoning  | `session.reasoning.started` / `.delta` / `.ended`                                                                     |
+| Tool       | `session.tool.called` / `.progress` / `.success` / `.failed`, plus `session.tool.input.started` / `.delta` / `.ended` |
+| Steps      | `session.step.started` / `.ended` / `.failed`                                                                         |
+| Execution  | `session.execution.started` / `.succeeded` / `.failed` / `.interrupted`                                               |
+| Compaction | `session.compaction.started` / `.delta` / `.ended` / `.failed`                                                        |
+| Revert     | `session.revert.staged` / `.committed` / `.cleared`                                                                   |
+| Lifecycle  | `session.status`, `session.idle`                                                                                      |
+| Permission | `permission.asked`, `permission.replied`                                                                              |
+| Form       | `form.created`, `form.replied`, `form.cancelled`                                                                      |
 
-1. Calls `client.pty.list({ directory })` to find an existing running PTY
-2. If none found, calls `client.pty.create({ directory, cwd, title })` to create one
-3. Returns `{ ptyId, status, error, retry }` for the terminal panel
+### `use-reconnect.ts`
 
-### use-reconnect.ts
+Exponential backoff with jitter:
 
-Auto-reconnection with exponential backoff:
+- health ping every `HEALTH_PING_INTERVAL = 30_000` ms while connected
+- backoff from `BASE_BACKOFF = 1_000` ms, doubling, capped at `MAX_BACKOFF = 60_000`
+- `MAX_RECONNECT_ATTEMPTS = 20`
+- jitter of 10% of the delay, so a fleet of clients does not retry in lockstep
+- `AppState` transitions trigger an immediate health re-check
 
-- Health ping every 30 seconds while connected
-- On failure, attempts reconnection with backoff (1s base, 60s max, 20 attempts max)
-- Jitter added to prevent thundering herd
-- Background/foreground detection: re-checks health when app returns to foreground
+### `use-offline-queue.ts`
 
-### use-offline-queue.ts
+Buffers prompts in AsyncStorage while disconnected — `enqueue`, `flushQueue`,
+`clearQueue` — and auto-flushes when status returns to `connected`.
 
-Buffers prompts in AsyncStorage when disconnected:
+### `use-pty-session.ts`
 
-- `enqueue(text, attachments)` — Adds to queue
-- `flushQueue()` — Sends all queued messages sequentially
-- `clearQueue()` — Empties the queue
-- Auto-flushes when connection status changes to `connected`
+Finds or creates a PTY: `client.pty.list({...})`, then
+`client.pty.create({...})` if none is running, returning
+`{ ptyId, status, error, retry }`.
 
-## Terminal Implementation
+### Domain modules
 
-The terminal is a full-screen PTY powered by xterm.js running inside a React Native WebView.
+Pure, dependency-free logic with its own unit tests: `diff-view.ts` (diff
+flattening, filtering, collapsing, totals), `forms.ts` (the V2 form model),
+`permissions.ts`, `permission-queue.ts`, `notification-replies.ts`,
+`session-fork.ts`, `session-revert.ts`, `session-stats.ts`, `revert.ts`,
+`fork.ts`, `saved-permissions.ts`, `pty-lifecycle.ts`.
 
-### Build Pipeline
+## Terminal
 
-`scripts/build-terminal-shell.mjs` runs at `postinstall`:
+A full-screen PTY: xterm.js 6 inside a React Native `WebView`, talking to the
+server's PTY WebSocket.
 
-1. Reads `@xterm/xterm` JS, `@xterm/addon-fit` JS, and `@xterm/xterm` CSS from `node_modules`
-2. Bundles them with inline WebSocket + terminal initialization logic
-3. Outputs `src/assets/terminal-shell-html.ts` as a static HTML string export
+**Build pipeline.** `scripts/build-terminal-shell.mjs` runs at `postinstall`. It
+reads `@xterm/xterm`, `@xterm/addon-fit` and the xterm stylesheet out of
+`node_modules`, bundles them with the WebSocket and terminal bootstrap logic, and
+emits `src/assets/terminal-shell-html.ts` as a string constant. The HTML is
+therefore a build artifact, not something to edit by hand.
 
-### Runtime Flow
+**Runtime flow.**
 
-1. `TerminalPanel` component renders a `<WebView>` with the bundled HTML
-2. Passes `wsUrl` (WebSocket URL with auth token) via `window.__TERMINAL__` injection
-3. xterm.js initializes, connects to the PTY WebSocket
-4. Terminal data flows bidirectionally: user input → WebSocket → server PTY → WebSocket → xterm display
-5. Resize events are sent back to the server via PTY resize messages
-6. WebView posts messages back to React Native for connection state and resize reporting
+1. `TerminalPanel` renders a `WebView` with that HTML.
+2. `buildTerminalWebSocketUrl()` (`src/utils/terminal-websocket.ts`) builds the
+   WebSocket URL, carrying the auth token — iOS and Android WebViews do not
+   inherit the app's fetch headers, so the credential has to travel in the URL.
+3. xterm connects to the PTY socket; input flows in, output renders.
+4. Resizes are sent back to the server.
+5. `TerminalBridgeContext` carries connection state and resize reports back into
+   React Native.
 
-### PTY WebSocket URL
+## Files and Diffs
 
-Built with `buildTerminalWebSocketUrl()` using the server base URL, PTY session ID, and Basic Auth token for iOS/Android WebView authentication.
+**`FileDrawer`** — browses via `useFileList(path)`, badges git status from
+`useFileStatus`, long-press to attach a file as context.
 
-## File Operations
+**`LandscapeFileRail`** — the compact rail beside the chat. It is
+`min(max(screenWidth × 0.28, 160), 200)`, so 160–200 px, **not** the 320 px / 35%
+the previous version claimed. It renders only when
+`isTablet && isLandscape && activePanel === "agent"`, so it yields the full width
+to the terminal or diff.
 
-### File Drawer (`FileDrawer`)
+**`UnifiedDiff`** — the diff panel. `useWorkspaceDiff(visible)` queries
+`["workspace-diff", directory, sessionId]` with a **15 s** `refetchInterval`, and
+gates the query on `visible` (`enabled: Boolean(client) && visible`) so a closed
+panel costs nothing. It prefers the working-tree diff and falls back to the
+session's diff when the tree is clean, deliberately _without_ the untracked
+overlay, since subtracting the VCS status set from a session diff would subtract
+the wrong set. It also lists untracked files, which git has no hunks for.
 
-- Lists files via `useFileList(path)` (starts at workspace root)
-- Navigates into directories by updating the path
-- Shows git status badges (modified, added, deleted) via `useFileStatus()`
-- Long-press a file to add it as a context attachment
+The panel is a virtualized `SectionList` with sections flattened alongside their
+rows (`SectionListData<SectionT, ItemT> = SectionT & { data: ItemT[] }`).
 
-### Unified Diff (`UnifiedDiff`)
+Collapsing is honoured inside `toDiffSections`, before the rows are built, so a
+folded file never allocates a `DiffRow` for any of its lines. Counts come from
+the hunks rather than the unbuilt rows — otherwise a folded file would report
+"+0 −0" and appear to be a change the agent undid.
 
-- Shows modified files from `useFileStatus()`
-- Reads patch data via `useFilePatch(path)`
-- Renders added/removed/context lines with syntax highlighting
-- Accessible via swipe gesture or panel tab
+## Chat Rendering
 
-### Landscape File Rail (`LandscapeFileRail`)
+`src/components/chat/` is a subsystem in its own right, and `AgentChat` is mostly
+composition over it.
 
-- Compact file list shown alongside agent chat in landscape mode
-- Limited to 320px width (35% of screen)
-- Only visible when `activePanel === "agent"` and in landscape
+| Component                              | Role                                                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ChatMessageBubble`                    | One message: alignment by role, header, body, footer                                                                                                         |
+| `MarkdownRenderer`                     | `react-native-markdown-display`, themed, `memo`ised, with copy-to-clipboard and a runnable-language check that offers to send a fenced block to the terminal |
+| `ThinkingPartGroup`                    | Collapsed-by-default reasoning parts                                                                                                                         |
+| `CollapsiblePartGroup`                 | Generic collapsible wrapper for tool parts                                                                                                                   |
+| `ChatScrollBar` / `ChatScrollControls` | Custom scrollbar and jump controls                                                                                                                           |
+| `message-parts.ts`                     | Pure part classification and grouping                                                                                                                        |
+
+Tool and thinking blocks default to collapsed; a Settings toggle can expand them
+by default. The grouping lives in `message-parts.ts` rather than in the bubble so
+it can be unit tested without rendering.
 
 ## Themes
 
-7 built-in themes defined in `ThemeContext.tsx`:
+**Eight** themes in `src/theme/palettes.ts`, not seven.
 
 | Name              | Style                                |
 | ----------------- | ------------------------------------ |
-| `oled-black`      | Pure black background, cyan accent   |
+| `oled-black`      | Pure black, cyan accent              |
 | `dev-dark`        | GitHub-like dark, blue accent        |
 | `dev-light`       | GitHub-like light, blue accent       |
 | `midnight-purple` | Deep purple, violet accent           |
 | `solarized-dark`  | Solarized palette, teal accent       |
 | `nord`            | Nord palette, ice blue accent        |
 | `high-contrast`   | Black/white/yellow, maximum contrast |
+| `hacker`          | Terminal green on black              |
 
-Each theme defines: `colors` (14 semantic tokens), `spacing` (5 scale values), `typography` (5 font sizes).
+Each theme supplies **14** semantic colour tokens — `background`, `surface`,
+`surfaceElevated`, `border`, `text`, `textMuted`, `accent`, `onAccent`,
+`accentMuted`, `success`, `danger`, `warning`, `pillBackground`,
+`inputBackground` — plus **5** spacing values from a shared scale and **5** base
+font sizes.
 
-Font scaling supports 4 levels: 0.85, 1.0, 1.15, 1.3. All typography sizes are multiplied by the scale factor.
+`FontScale` is `0.85 | 1 | 1.15 | 1.3`; `scaleTypography` multiplies every size
+by it. `FontType` is `system | mono`.
 
-System theme sync: When enabled, follows `Appearance.getColorScheme()` and toggles between `dev-dark` / `dev-light`.
+System theme sync follows `Appearance.getColorScheme()` and toggles between
+`dev-dark` and `dev-light`. `src/theme/color-contrast.ts` carries contrast tests
+over the palettes.
 
 ## Permission System
 
-The agent can request permissions (e.g., to run shell commands). The flow:
+1. The event bus receives `permission.asked`.
+2. `permission-provider.tsx` parses it into a `PendingPermission` and enqueues it.
+3. Auto-approve, if enabled, replies immediately.
+4. Otherwise `PermissionBanner` renders it in the workspace; if the app is
+   backgrounded, `expo-notifications` posts a local notification.
+5. Tapping the notification is a first-class reply path — see
+   `notification-replies.ts`.
+6. `respond(response)` replies and removes it from the queue.
 
-1. SSE event bus receives a permission event
-2. `PermissionContext` parses it into a `PendingPermission`
-3. If auto-approve is enabled in preferences, responds immediately with `"always"`
-4. Otherwise, shows a `PermissionBanner` in the workspace
-5. If the app is backgrounded, sends a local notification via `expo-notifications`
-6. User responds (Allow / Reject / Always Allow), which calls `respondToPermission()`
+Three properties of this flow are load-bearing and easy to break:
+
+**Never drop a tap.** A reply taken with no client available is _held_, not
+discarded, and flushed when a client arrives. Dropping it would leave the agent
+blocked on a prompt the user believes they answered.
+
+**The lock gates replies, not just the UI.** While `isLockGated` is true — see
+`src/hooks/biometric-lock-state.ts` — a reply is held rather than sent, so an
+approval cannot be sent from a notification while the app is locked. Gating on
+`lockState === "locked"` alone would hang forever, because a stale stored
+preference plus unenrolled biometrics makes `authenticate()` return `false`
+without ever leaving `"locked"`. The predicate therefore also takes
+`biometricAvailable`, and treats `lockState !== "unlocked"` as gated so that
+`"unlocking"` holds too.
+
+**`respond()` resolves on failure.** It reports through `error` and does not
+reject, because every caller is `void respond(...)`; a rejection with no observer
+becomes an unhandled rejection and, on a release build, a crash report about a
+permission that visibly failed.
+
+## Forms (Agent Questions)
+
+V1 had a bespoke `/question` subsystem with a rigid
+`[{ question, options, multiple, custom }]` shape. **V2 deletes all of it** and
+replaces it with a generic Form: an ordered, heterogeneous `fields` list where
+each field carries its own type, constraints and visibility conditions.
+
+The server exposes four form paths, five operations in all, and the app uses
+every one of them:
+
+| Route                                          | Method    | Client call                  |
+| ---------------------------------------------- | --------- | ---------------------------- |
+| `/api/form`                                    | GET       | `client.form.list`           |
+| `/api/session/{sessionID}/form`                | GET, POST | `client.session.form.list`   |
+| `/api/session/{sessionID}/form/{formID}`       | GET       | `client.session.form.get`    |
+| `/api/session/{sessionID}/form/{formID}`       | DELETE    | `client.session.form.cancel` |
+| `/api/session/{sessionID}/form/{formID}/reply` | POST      | `client.session.form.reply`  |
+
+Note that `cancel` is a `DELETE` on the resource path, not a `POST .../cancel`.
+There is no form-reject endpoint in V2; `question.reject` died with the rest of
+`/question`. `reply` and `cancel` both answer `204 No Content`.
+
+`src/api/forms.ts` holds the model: parsing `form.created` into a `PendingForm`,
+closing a form on `form.replied` or `form.cancelled`, field visibility (`hidden`
+wins; `when` clauses AND together; `external` fields always show), `default`
+seeding, required-field and `minItems`/`maxItems` validation, and number
+coercion. `QuestionContext` owns the pending list — including a cold-start
+`listPendingForms` so a form raised while the app was closed still appears — and
+`QuestionBanner` renders the fields — an `external` field as a link beside an
+acknowledgement toggle, every other kind with its matching control.
+
+The `external` case is the one that required a live server to pin down. The
+server requires every `external` field to be acknowledged in the answer map —
+omitting it, or sending anything other than `true`, fails the whole reply with
+`FormInvalidAnswerError: External form field must be acknowledged: <key>`.
+Only `true` is accepted; `false`, `"yes"` and `1` were all refused when probed.
+The app now satisfies that as a unit rather than treating `external` as optional:
+
+- `initialAnswer()` seeds every external field to `false`, so the key exists for
+  a controlled toggle rather than being absent.
+- `missingRequiredKeys()` treats external fields as required unconditionally —
+  regardless of the author's `required` flag — and flags them until their value
+  is exactly `true`. A boolean `false` is still a real answer for a boolean
+  field, so the two are distinguished in `isUnanswered()` rather than both going
+  through `isEmptyValue`.
+- `QuestionBanner` renders a "I have read this" / "Not yet" toggle beside the
+  link, marks the field required, and the payload builder no longer drops it.
+  Submit is blocked server-side-equivalent: locally, before the request leaves.
 
 ## Expo Config Plugins
 
-### with-cleartext-network
+`plugins/with-cleartext-network.js` sets `android:usesCleartextTraffic="true"`
+and adds a `network_security_config.xml` permitting cleartext. OpenCode servers
+typically run over plain HTTP on a LAN or a Tailnet, so without this the app
+cannot reach one.
 
-Custom plugin (`plugins/with-cleartext-network.js`) that:
+## Testing
 
-1. Sets `android:usesCleartextTraffic="true"` in AndroidManifest
-2. Adds a `network_security_config.xml` allowing all cleartext traffic
-3. Required because OpenCode servers typically run over HTTP on LAN/Tailscale
+`bun test`, no Jest. `src/testing/` holds the harness:
+
+- `setup.ts` — global mocks, including `expo-notifications`, which cannot be
+  imported under `bun test` because it reaches `expo-modules-core` and reads
+  Metro's `__DEV__`.
+- `harness.tsx` — `render()` returning `act`, `press`, `flush` and `text`.
+- `context-holds.ts` — the world-state slots, and `resetTestContext`, which
+  **resets call logs but keeps handler registrations**.
+- Stub modules for React Native, Reanimated, the event bus, the WebView and
+  clipboard.
+
+Two conventions worth knowing before writing a test here:
+
+- External stimuli (SSE events, notification taps, `AppState` changes) must run
+  **inside** `result.act(...)`, or the `setState` lands without flushing and the
+  failure reads like a product bug.
+- `flush()` needs two real `setTimeout(0)` turns. `act` flushes React
+  synchronously, which hides production Scheduler interleavings — some races are
+  only reachable by making an awaited call hang.
+
+Live server contracts are checked separately by
+`scripts/probe-server-contracts.mjs`, which is written to _disprove_ the app's
+assumption first, so a probe that agrees is evidence rather than a tautology.
 
 ## Tech Stack
 
 | Layer      | Technology                                         |
 | ---------- | -------------------------------------------------- |
-| Framework  | React Native 0.86 + Expo SDK 57                    |
+| Framework  | React Native 0.86.3 + Expo SDK 57 + React 19.2     |
 | Navigation | React Navigation 7 (native stack)                  |
 | State      | React Query 5 (server state) + Context (app state) |
 | Styling    | `StyleSheet.create()` with theme tokens            |
-| Terminal   | xterm.js 6 + FitAddon in WebView                   |
-| SDK        | `@opencode-ai/sdk/client` v1                       |
+| Terminal   | xterm.js 6 + FitAddon in a WebView                 |
+| Server API | `@opencode/client` 2.0.22 (OpenCode **V2**)        |
 | Animations | react-native-reanimated 4.5                        |
 | Gestures   | react-native-gesture-handler 2.32                  |
 | Storage    | AsyncStorage (general) + SecureStore (credentials) |
-| Build      | Bun, TypeScript 6, ESLint 10                       |
+| Build      | Bun, TypeScript 6, ESLint 10, Prettier             |

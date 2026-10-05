@@ -787,11 +787,11 @@ One process note worth recording: `bun test` writes its summary lines to **stder
 
 ### Still open, pending a decision
 
-- **A stale error survives a successful retry.** After a failed flush and then a successful one, the banner still reads "server said no". `deliverReply` clears the entry on success but never `setError(null)`. The test at line 273 encodes this as intended - "silently clearing it would tell the user nothing went wrong" - which is right for the failed state and wrong for the retried one. Deliberate rather than by omission.
-- **`respond()` rethrows into four `void` callers.** Harmless today; one refactor from an unhandled rejection.
-- **The collapse comment overstates what collapse does.** It prevents rendering; `toDiffSections` still builds every `DiffRow` for every file on every 15s tick. Worth tightening given this file's care elsewhere not to claim measurements it did not make.
+- ~~**A stale error survives a successful retry.**~~ **Resolved in Batch 16.** `deliverReply` now clears the error on success, and both halves are pinned: a failure with no retry keeps its message, a recovered one drops it.
+- ~~**`respond()` rethrows into four `void` callers.**~~ **Resolved in Batch 16.** `respond` resolves on failure with the error still set. Tested in both directions, because a resolution-only test would pass just as well if the error had been swallowed.
+- ~~**The collapse comment overstates what collapse does.**~~ **Resolved in Batch 16**, and not only the comment: `collapsed` is now an option on `toDiffSections`, checked before the rows exist, so a folded file genuinely never allocates a `DiffRow`.
 - **§5.2 Phase 2** - no push endpoint exists on the server (116 routes, zero matching push/device/notification/subscribe), and `expo-task-manager` is not installed. Unresolved from the review.
-- **The server has a form surface the app ignores** - `GET /api/form`, `DELETE /api/session/{sessionID}/form/{formID}`. §5.2 listed question/form requests as missing and never noticed.
+- ~~**The server has a form surface the app ignores.**~~ **Wrong, and retired in Batch 17.** The premise was checked against a live server and the surface is _already fully adopted_: src/api/forms.ts is implemented, QuestionContext holds the pending list with a cold-start read, and QuestionBanner renders the fields. All four server form paths match, verified by execution rather than by reading the spec. §5.2's listing of question/form requests as missing is obsolete - the note was written about a surface nobody had opened, and reading it as a task list is what kept it resurfacing. The live probe did find one real defect here, now fixed in Batch 18: a form containing an xternal field could not be answered at all.
 
 ---
 
@@ -828,3 +828,210 @@ The panel test that asserts a collapsed body disappears cannot tell the two impl
 Mutation verification: **8/8** (`mutate-batch16.mjs`), zero survivors. Two of the eight are the directions that matter most: clearing the error _before_ the send rather than after (6 failures, since it would wipe a genuine failure message), and counting from the built rows so a folded file reports zero.
 
 One housekeeping note: `suggestions.md` picked up a formatting-only change - prettier rewrites markdown emphasis from `*x*` to `_x*` - and added a trailing newline. Nothing in the commit path formats, so the cause is not pinned down; both files are `prettier --check` clean now, which is what `bun run check` requires, so the change was kept rather than reverted. Worth knowing that `bun run format` would reintroduce it either way.
+
+---
+
+## Batch 17 - §12 docs, and the form probe
+
+### §12 `docs/ARCHITECTURE.md`, rewritten
+
+Rewrote it against the source tree and a running server. Every claim in the new
+version was checked; where a claim would need a live server it says so instead of
+asserting it. 253 lines to 487.
+
+What was actually wrong:
+
+- **The SDK was named wrongly and versioned wrongly.** It claimed
+  `@opencode-ai/sdk/client` v1. The real dependency is `@opencode/client`
+  **2.0.22**, targeting the **V2** API. `@opencode-ai/sdk` is not installed.
+- **`directory.ts` does not exist.** V1's flat `?directory=` parameter is
+  replaced by `src/api/opencode/location.ts`, which serializes a `location`
+  object to the deepObject parameter `?location[directory]=` and passes it per
+  call. Session endpoints take no location at all, and passing one is a schema
+  error.
+- **Five of nine navigation routes were missing**, including the whole Cursor
+  path (`ProviderPicker`, `CursorConnection`, `CursorSessions`) plus
+  `SavedPermissions` and `Stats`.
+- **Two providers were missing** from the tree table (`SessionMetaProvider`,
+  `QuestionProvider`), as was `TerminalBridgeContext` - which is not in `App.tsx`
+  at all, but mounted per-workspace inside `WorkspaceScreen`.
+- **The agent provider abstraction was absent entirely.** `src/api/providers/`
+  with the `AgentProvider` interface and both the `opencode` and `cursor`
+  implementations is the largest subsystem the old document never mentioned.
+- **The event vocabulary was V1.** The old list (`message.updated`,
+  `message.part.updated`, `command.executed`) is gone. The app branches on 34 V2
+  names; they are now grouped by family in a table.
+- **`hacker` was missing**, making it 8 themes rather than 7.
+- **The landscape rail dimensions were wrong.** Not "320px / 35%" but
+  `min(max(screenWidth × 0.28, 160), 200)` - 160 to 200 px - and it renders only
+  on `isTablet && isLandscape && activePanel === "agent"`.
+- **The diff panel description was stale.** It does not read `useFilePatch` per
+  file; `useWorkspaceDiff(visible)` runs one 15-second query gated on `visible`,
+  prefers the working tree, and falls back to the session diff _without_ the
+  untracked overlay.
+- **`src/components/chat/`** was missing as a subsystem.
+
+Claims that turned out to be **correct** and were kept: React Native 0.86 +
+Expo SDK 57, gesture-handler 2.32, reanimated 4.5, the reconnect constants
+(30 s ping, 1 s base, 60 s cap, 20 attempts, 10% jitter), `FontScale` as
+0.85 | 1 | 1.15 | 1.3, 14 colour tokens, 5 spacing values, and
+`testConnection` / `ensureSession` living in `client.ts`.
+
+Two corrections I made to my own draft rather than ship: I wrote "eleven
+providers" over a table of eight, and "and two more" after listing 11 of 14
+colour tokens. Both were the same sloppiness I was removing from the old file.
+
+### The form probe - the surface is adopted, and one bug is live
+
+**The premise was wrong.** §5.2 listed question/form requests as missing. They
+are not: `src/api/forms.ts` is fully implemented, `QuestionContext` holds the
+pending list with a cold-start read, and `QuestionBanner` renders the fields. The
+"unused server form surface" note in this file was stale and is now retired.
+
+**All four form paths match the server**, confirmed against the live OpenAPI
+(116 routes, 4 matching `/form/`) and then executed for real. One thing nearly
+became a false bug report: `client.session.form.cancel` has no `POST .../cancel`
+path in the spec, which looked like a mismatch until reading the SDK showed
+`cancel` is a `DELETE` on the resource path with `?message=` - exactly what the
+server declares. Verified, not assumed.
+
+**One real bug, found by running the app's own code against a real form.**
+
+> The server requires every `external` field to be acknowledged in the answer
+> map. Omitting it fails the entire reply with `FormInvalidAnswerError:
+External form field must be acknowledged: <key>`.
+
+`initialAnswer()` skips external fields by design (`if (field.type ===
+"external") continue`), `missingRequiredKeys()` skips them too, and
+`QuestionBanner` renders them as a bare link with no control that writes to the
+answer map. **There is no path by which this app can produce a valid answer for a
+form containing an `external` field.** Such a form is unsubmittable: the user
+taps submit, gets an error naming a field they cannot set, and the agent stays
+blocked.
+
+Found by brute-forcing the accepted value rather than reading the spec and
+hoping: `true` is accepted, and it is the only one of `true / false /
+"acknowledged" / {}` that is.
+
+Method notes, all of which cost time and are worth keeping:
+
+- **A 401 is not evidence.** Every `/api/*` path returns 401 because auth runs
+  before routing, so an unauthenticated probe cannot distinguish "route missing"
+  from "route exists". The earlier `GET /api/form` "timeout" was the auth
+  middleware holding the connection, not evidence of anything.
+- The two running servers had unrecoverable generated passwords, so a fresh
+  `opencode serve` was started on a spare port with a password set explicitly.
+- Sessions carry their directory at `location.directory`, not `directory` (the
+  V1 field name). Reading the wrong one yields `undefined` and looks like an
+  empty list.
+- An `external` field needs a `url` at creation; the server rejects the form
+  without one.
+- Two of the probe's own assertions were wrong (a miscounted visible-field
+  total, and asserting a visible-but-optional field is demanded) and were
+  corrected rather than left to make the app look wrong.
+- The leftover probe form was cancelled with `DELETE` (204), which also
+  confirmed `cancelForm` works against the real server.
+
+Per "report before changing anything", the gap was documented in
+`ARCHITECTURE.md` first -- then fixed in Batch 18 and the doc updated to describe
+the resolved contract. The fix is the one the sentence already named: seed
+external fields to `false` in `initialAnswer`, render an acknowledgement toggle
+in `QuestionBanner` that writes `true`, and stop skipping external fields in
+`missingRequiredKeys` so a missing acknowledgement is reported before submit
+rather than as a server rejection after it.
+
+### Verification
+
+1193 tests, unchanged and passing - this batch changed no product code.
+`tsc`, `eslint` and `prettier --check .` all clean.
+
+---
+
+## Batch 18 - external fields can now be answered
+
+The form probe (Batch 17) ended with a question: the server requires every
+`external` field to carry `true`, and the app had no way to provide it. The fix.
+
+### The verified constraint
+
+Probed against a live server, not read from the spec: of `omitted`, `false`,
+`"yes"`, `1` and `true`, **only `true` is accepted**. Everything else fails the
+_entire_ reply with
+`FormInvalidAnswerError: External form field must be acknowledged: <key>`. So
+this is not "the field is optional and the value is advisory" -- it is
+"the reply is refused" unless the user confirms they visited the link.
+
+### The three places the app got this wrong
+
+1. `initialAnswer()` skipped external fields, so the answer map never had a key
+   for them.
+2. `missingRequiredKeys()` skipped them too, so an unacknowledged external field
+   was never reported before submit.
+3. The payload builder in `QuestionBanner` skipped them, so even an
+   acknowledgement the UI had collected was dropped on the floor.
+
+The component therefore showed a bare link with no control and no validation,
+and "Submit" sent a payload the server was guaranteed to refuse -- a form
+containing any external field was unsubmittable.
+
+### The fix
+
+- `initialAnswer()` now seeds every external field to `false`. The key has to
+  exist for a controlled toggle; `false` is the unacknowledged state, not an
+  answer.
+- `isUnanswered()` is split out from `isEmptyValue()`: for an `external` field
+  unacknowledged means `!== true`; for a boolean field `false` is a real answer
+  ("No"), so the two must not share a rule. A single `isEmptyValue`-backed check
+  is how the boolean case would have been rebroken while fixing the external one.
+- `missingRequiredKeys()` treats external fields as required unconditionally --
+  the author's `required` flag is irrelevant, the server demands it either way --
+  and flags them until the value is exactly `true`.
+- `QuestionBanner` renders a "I have read this" / "Not yet" toggle beside the
+  link, marks the field required, and the payload builder no longer drops it.
+  Submit is blocked before the request leaves: the local gate now mirrors the
+  server's own rule.
+- `styles.external` gap widened from 2 to `spacing.sm`, since it now hosts two
+  children instead of one.
+
+### Getting there: the stub gap
+
+`QuestionBanner` could not be tested before this batch. It imports `Linking` from
+`react-native`, and the RN test shim listed `Linking` under `NOT_STUBBED` -- so
+the shim's proxy threw on import, failing the whole graph before a single
+assertion ran. The stub now provides a no-op `Linking.openURL` that resolves
+`true`, and `Linking` moved from `NOT_STUBBED` to `IMPLEMENTED` in
+`rn-stub-coverage.test.ts`. `openURL` is not asserted on (out of scope for a
+render test); it is stubbed so the component is renderable and its _logic_ is
+exercisable, which is the gap that held.
+
+### Tests
+
+- New `src/components/__tests__/QuestionBanner.test.tsx`: renders nothing when
+  no form is pending, renders the link + toggle, blocks submit while
+  unacknowledged, and -- the regression -- sends `{ runbook: true }` once the
+  user confirms. Includes a boolean-`false` case pinning the `isUnanswered`
+  split: "No" must still submit.
+- `forms.test.ts`: six new/moved cases pinning `initialAnswer` seeding external
+  to `false` (ignoring any `default`), unacknowledged external as required,
+  `true`-only acknowledgement, and boolean `false` not missing.
+
+**1202 tests across 35 files** (from 1193). `tsc` (app + test), `eslint`,
+`prettier --check .` all clean.
+
+### Mutation verification
+
+7/7, zero survivors (`mutate-batch18.mjs`):
+
+- `initialAnswer` reverts to skipping external
+- `isUnanswered` reverts to `isEmptyValue` for external (breaks the
+  false-is-meaningful-for-boolean case)
+- `missingRequiredKeys` excludes external again
+- the payload builder skips external again
+- the toggle writes the wrong value
+- the toggle is removed (link-only)
+- acknowledged external still treated as required
+
+Notably, both directions of the core contract are pinned: `false` is refused
+(`isUnanswered` split) _and_ `true` is accepted (the payload test), so the only
+survivable middle ground -- "treat any value as acknowledgement" -- is covered by
+neither and therefore cannot exist.
