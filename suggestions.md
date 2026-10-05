@@ -1033,5 +1033,62 @@ exercisable, which is the gap that held.
 
 Notably, both directions of the core contract are pinned: `false` is refused
 (`isUnanswered` split) _and_ `true` is accepted (the payload test), so the only
-survivable middle ground -- "treat any value as acknowledgement" -- is covered by
-neither and therefore cannot exist.
+survivable middle ground -- "treat any value as acknowledgement" -- is covered
+by neither and therefore cannot exist.
+
+---
+
+## Batch 19 - §5.2 Poll backstop (the chosen Phase 1)
+
+The user chose **option 1: poll** for §5.2 Phase 2. The form surface was
+already adopted (Batch 17 retired the "unused surface" claim); the only gap was
+delivery of `form.created` events the WebSocket missed, typically while the app
+was backgrounded and the JS thread was suspended.
+
+### What shipped
+
+- New `selectPolledForm(current, polled)` and `pollForms(client, directory,
+current)` in `src/api/forms.ts`. `pollForms` calls `listPendingForms`, folds
+  the result through `selectPolledForm` (`current ?? polled[0] ?? null` -- it
+  never replaces a form the user is answering), and swallows transient errors
+  to match the cold-start read's tolerance. `FORM_POLL_INTERVAL_MS = 30_000`
+  reuses the §3.4 health-ping cadence so there's one figure to reason about.
+- `QuestionProvider` now runs that poll while `status === "connected"`: once on
+  entering connected, then on the interval. A `pendingRef` snapshot keeps each
+  tick from acting on a stale closure. (`useReconnect`'s interval effect is
+  likewise timer-untested -- the harness mocks `QuestionProvider` and the repo
+  uses no fake timers -- so the testable contract is the pure merge/`pollForms`
+  logic, with the scheduling effect covered by `tsc` + the pure contract.)
+- Documented the backstop and the still-gated Phase 2 (real push) in
+  `ARCHITECTURE.md` §5.2.
+
+### Tests
+
+`pollForms`/`selectPolledForm` cases added to `forms.test.ts`: surfaces the first
+polled form, keeps a null slot, never replaces an open form (the safety
+property), ignores duplicate ids, forwards the directory as a `location` scope,
+omits the scope when there is no directory, swallows a transient failure while
+keeping the current form, and stays null when there is nothing to poll.
+
+**1213 tests across 35 files** (from 1202). `tsc` (app + test), `eslint`,
+`prettier --check .` all clean.
+
+### Mutation verification
+
+7/7, zero survivors (`mutate-batch19.mjs`), all on the pure `forms.ts` contract
+(the interval scheduling is intentionally not mutated, per the `useReconnect`
+precedent -- it would be an unkillable survivor and thus out of scope for the
+sweep):
+
+- `selectPolledForm` drops the current form
+- `selectPolledForm` never surfaces a polled form
+- `selectPolledForm` prefers the poll over the open form
+- `pollForms` bypasses the merge and returns the raw list
+- `pollForms` ignores the poll result
+- `pollForms` stops swallowing transient failures
+- `pollForms` drops the directory on the call
+
+Note on scope honesty: the immediate-on-connect poll and the recurring interval
+are guarded by `status === "connected"` but are not timer-tested here; if Phase 2
+is pursued, prefer the real `form.created` event sink and drop the backstop
+rather than hardening its scheduling.

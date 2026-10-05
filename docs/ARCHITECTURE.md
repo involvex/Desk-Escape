@@ -425,7 +425,8 @@ closing a form on `form.replied` or `form.cancelled`, field visibility (`hidden`
 wins; `when` clauses AND together; `external` fields always show), `default`
 seeding, required-field and `minItems`/`maxItems` validation, and number
 coercion. `QuestionContext` owns the pending list — including a cold-start
-`listPendingForms` so a form raised while the app was closed still appears — and
+`listPendingForms` so a form raised while the app was closed still appears, and a
+§5.2 Poll backstop (below) for the foreground-but-missed-event case — and
 `QuestionBanner` renders the fields — an `external` field as a link beside an
 acknowledgement toggle, every other kind with its matching control.
 
@@ -446,6 +447,35 @@ The app now satisfies that as a unit rather than treating `external` as optional
 - `QuestionBanner` renders a "I have read this" / "Not yet" toggle beside the
   link, marks the field required, and the payload builder no longer drops it.
   Submit is blocked server-side-equivalent: locally, before the request leaves.
+
+### §5.2 Poll
+
+This is the §5.2 resolution chosen off the backlog: **poll**, not push.
+
+The event stream is the primary delivery path for `form.created`, but a form
+raised while the app was backgrounded -- when the JS thread is suspended and the
+socket effectively idle -- can miss it entirely. No server-side push endpoint
+exists yet, so the backstop is a low-frequency re-read:
+
+- `pollForms(client, directory, current)` in `src/api/forms.ts` calls
+  `listPendingForms` and folds the result through `selectPolledForm`, which
+  **never replaces a form the user is already answering**
+  (`current ?? polled[0] ?? null`). A transient failure is swallowed, mirroring
+  the cold-start read, and the directory is forwarded as the usual `location`
+  scope.
+- `QuestionProvider` runs that poll while `status === "connected"` -- once on
+  entering connected, then every `FORM_POLL_INTERVAL_MS` (30 s, the same
+  health-ping cadence as §3.4, so there is one figure to reason about). A
+  `pendingRef` snapshot keeps each tick from acting on a stale closure.
+- `external` fields are always shown and cannot be skipped by visibility rules,
+  so they are covered by the poll without extra handling.
+- True push is still the ideal: an SSE / `subscribe` feed for `form.created`.
+  **Phase 2 (gated on a server-side feed):** replace the backstop once the server
+  exposes that endpoint. The client seam is already in place
+  (`eventBus.onEvent` over `form.created`); it needs no change when the feed
+  ships. `expo-task-manager` is intentionally not pulled in -- a background
+  `setInterval` would be suspended by the OS anyway, so the poll covers only the
+  foreground/missed-event case and defers true background delivery to Phase 2.
 
 ## Expo Config Plugins
 
