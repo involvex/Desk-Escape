@@ -214,7 +214,9 @@ function FieldRenderer({
           borderColor: colors.border,
           borderRadius: 10,
           borderWidth: 1,
-          gap: 2,
+          // Was 2, sized for a single link. The acknowledgement row below needs
+          // real separation from it or the two read as one control.
+          gap: spacing.sm,
           padding: spacing.sm,
         },
         externalLink: {
@@ -227,18 +229,40 @@ function FieldRenderer({
 
   const label = fieldLabel(field);
 
-  // External fields are answered outside the app; render them as a link only.
+  // An external field is answered outside the app: the user opens the link, then
+  // confirms. That confirmation is not decoration. The server refuses the entire
+  // reply unless every external field carries `true`, so a link with no control
+  // beside it made the form permanently unsubmittable.
   if (field.type === "external") {
+    const acknowledged = answer[field.key] === true;
     return (
       <FieldShell
         description={field.description}
         label={label}
-        required={false}
+        // Unconditional, whether or not the author set `required`: the server
+        // demands the acknowledgement either way.
+        required={true}
       >
         <View style={styles.external}>
           <Pressable onPress={() => void Linking.openURL(field.url)}>
             <Text style={styles.externalLink}>{field.url}</Text>
           </Pressable>
+          <View style={styles.toggleRow}>
+            {[true, false].map((option) => (
+              <Pressable
+                key={String(option)}
+                onPress={() => onChange(field, option)}
+                style={[
+                  styles.toggle,
+                  acknowledged === option ? styles.toggleSelected : null,
+                ]}
+              >
+                <Text style={styles.toggleText}>
+                  {option ? "I have read this" : "Not yet"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
       </FieldShell>
     );
@@ -548,7 +572,6 @@ function FormBannerInner({ pending }: { pending: PendingForm }) {
     // hidden by a `when` clause cannot leak a stale value into the payload.
     const payload: FormAnswer = {};
     for (const field of fields) {
-      if (field.type === "external") continue;
       const value = answer[field.key];
       if (value === undefined) continue;
       if (Array.isArray(value) && value.length === 0) continue;

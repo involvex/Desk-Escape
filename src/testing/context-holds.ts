@@ -1,5 +1,7 @@
 import type { PendingPermission, PermissionResponse } from "@/api/permissions";
 import type { DeferredReason } from "@/api/notification-replies";
+import type { PendingForm } from "@/api/forms";
+import type { FormAnswer } from "@opencode/client";
 import type { ThemeName } from "@/types/opencode";
 import { themeDefinitions } from "@/theme/palettes";
 import { resetClipboard } from "@/testing/clipboard-stub";
@@ -357,6 +359,7 @@ export function setTestContext(next: {
   connection?: Partial<TestConnection>;
   project?: unknown;
   permission?: Partial<PermissionState>;
+  question?: Partial<QuestionState>;
   biometricLock?: Partial<TestBiometricLock>;
 }): void {
   if (next.theme) {
@@ -375,6 +378,9 @@ export function setTestContext(next: {
   if (next.permission) {
     permissionState = { ...permissionState, ...next.permission };
   }
+  if (next.question) {
+    questionState = { ...questionState, ...next.question };
+  }
   if (next.biometricLock) {
     biometricLock = { ...biometricLock, ...next.biometricLock };
   }
@@ -386,6 +392,8 @@ export function resetTestContext(): void {
   connection = connectedDefaults();
   currentProjectValue = { id: "prj_test", worktree: "/repo" };
   permissionState = defaultPermissionState();
+  questionState = defaultQuestionState();
+  questionCalls = { reply: [], cancel: 0, clearError: 0 };
   biometricLock = defaultBiometricLock();
   resetClientCalls();
   resetClipboard();
@@ -564,6 +572,74 @@ export function currentPermission(): PermissionState & {
 /** What the banner did, since the last reset. */
 export function permissionCallLog(): Readonly<PermissionCalls> {
   return permissionCalls;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Form (question) banner                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The form surface, mirroring `QuestionContext`'s value.
+ *
+ * Separate from the permission slot because the two are genuinely different
+ * subsystems that happen to share a shape: a permission is answered with one of
+ * three fixed responses, a form with an arbitrary `{ fieldKey: value }` map.
+ */
+export interface QuestionState {
+  /** The form being shown, or `null` when none is pending. */
+  pending: PendingForm | null;
+  /** `true` while a reply or cancel is in flight. */
+  busy: boolean;
+  /** Last failure message, or `null`. */
+  error: string | null;
+}
+
+/** What the banner sent, so a test can assert on the payload it built. */
+export interface QuestionCalls {
+  reply: FormAnswer[];
+  cancel: number;
+  clearError: number;
+}
+
+function defaultQuestionState(): QuestionState {
+  return { pending: null, busy: false, error: null };
+}
+
+let questionState: QuestionState = defaultQuestionState();
+let questionCalls: QuestionCalls = { reply: [], cancel: 0, clearError: 0 };
+
+/**
+ * The value `useQuestion()` returns.
+ *
+ * `reply` records the payload rather than posting it, for the same reason
+ * `currentPermission().respond` does: the real context would remove the form on
+ * success, which is the context's behaviour to test, not the banner's. What needs
+ * pinning here is the payload the banner *builds* — and that is exactly where the
+ * external-field bug lived, invisible to every pure-module test because
+ * `forms.ts` was correct while the component dropped the key on the floor.
+ */
+export function currentQuestion(): QuestionState & {
+  reply: (answer: FormAnswer) => Promise<void>;
+  cancel: () => Promise<void>;
+  clearError: () => void;
+} {
+  return {
+    ...questionState,
+    reply: async (answer) => {
+      questionCalls.reply.push(answer);
+    },
+    cancel: async () => {
+      questionCalls.cancel += 1;
+    },
+    clearError: () => {
+      questionCalls.clearError += 1;
+    },
+  };
+}
+
+/** Every payload the banner has submitted, since the last reset. */
+export function questionCallLog(): Readonly<QuestionCalls> {
+  return questionCalls;
 }
 
 /* -------------------------------------------------------------------------- */

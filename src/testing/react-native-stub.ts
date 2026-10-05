@@ -466,6 +466,21 @@ export const Platform = {
     spec.ios ?? spec.default,
 };
 
+/**
+ * `Linking`, a one-line no-op.
+ *
+ * Added so `QuestionBanner` is renderable under `bun test` without reaching the
+ * real OS URL handler. `openURL` resolves true; nothing in a render test asserts
+ * it, only that pressing the link does not crash. It is in `IMPLEMENTED`, not
+ * `INERT`, because the app now *does* need the import to link -- moved out of the
+ * `NOT_STUBBED` list that previously made `QuestionBanner` unrenderable.
+ */
+export const Linking = {
+  openURL: async (_url: string): Promise<boolean> => true,
+  canOpenURL: async (_url: string): Promise<boolean> => true,
+  getInitialURL: async (): Promise<string | null> => null,
+};
+
 /* -------------------------------------------------------------------------- */
 /* Drift guard                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -481,6 +496,7 @@ export const IMPLEMENTED = [
   "Alert",
   "AppState",
   "FlatList",
+  "Linking",
   "Platform",
   "Pressable",
   "RefreshControl",
@@ -528,6 +544,7 @@ export const reactNativeStub = new Proxy(
     StyleSheet,
     Alert: { alert: recordAlert },
     Animated,
+    Linking,
     useColorScheme,
     useWindowDimensions,
     Platform,

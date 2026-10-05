@@ -402,12 +402,27 @@ describe("initialAnswer", () => {
     expect("env" in answer).toBe(false);
   });
 
-  test("skips external fields even when they carry a default", () => {
-    // An external field points at another surface; seeding an answer would submit
-    // a value the user never entered.
+  test("seeds an external field to false, not to its default", () => {
+    // This test asserted `{}` once, on the reasoning that "seeding an answer would
+    // submit a value the user never entered". That reasoning is right about the
+    // *value* and wrong about the omission: the server requires every external
+    // field to be acknowledged and refuses the whole reply otherwise --
+    //
+    //   FormInvalidAnswerError: External form field must be acknowledged: url
+    //
+    // -- so a map with no key for it can never be submitted. The key has to exist
+    // so the banner can render a controlled toggle, and the value has to be
+    // `false` because `false` is the unacknowledged state. A `default` on an
+    // external field is still ignored, since only `true` is ever accepted.
     expect(
       initialAnswer([field({ key: "url", type: "external", default: "x" })]),
-    ).toEqual({});
+    ).toEqual({ url: false });
+  });
+
+  test("seeds an external field even with no default at all", () => {
+    expect(initialAnswer([field({ key: "url", type: "external" })])).toEqual({
+      url: false,
+    });
   });
 
   test("seeds hidden fields too", () => {
@@ -527,11 +542,57 @@ describe("missingRequiredKeys", () => {
     ]);
   });
 
-  test("ignores a required external field", () => {
+  test("reports an unacknowledged external field as required", () => {
+    // The other test that encoded the bug. It asserted an external field is
+    // ignored even when explicitly `required`, which is the opposite of what the
+    // server does: it demands the acknowledgement whether or not the author asked
+    // for it. Ignoring it here meant the only signal was a server rejection after
+    // the user hit submit, naming a field the UI had shown as optional and offered
+    // no control for.
     expect(
       missingRequiredKeys(
         [field({ key: "url", type: "external", required: true })],
         {},
+      ),
+    ).toEqual(["url"]);
+  });
+
+  test("reports an external field that was never marked required", () => {
+    // The author did not ask for it; the server asks anyway.
+    expect(
+      missingRequiredKeys([field({ key: "url", type: "external" })], {
+        url: false,
+      }),
+    ).toEqual(["url"]);
+  });
+
+  test("an acknowledged external field is no longer missing", () => {
+    // Only `true` counts. Verified against a live server: `false`, `"yes"` and `1`
+    // are all refused with the same error as omitting the key, so treating any
+    // truthy value as an acknowledgement would let the form submit and then fail
+    // against the server rather than failing fast here.
+    expect(
+      missingRequiredKeys([field({ key: "url", type: "external" })], {
+        url: true,
+      }),
+    ).toEqual([]);
+    for (const notAcknowledged of [false, "yes", 1, 0, "true"]) {
+      expect(
+        missingRequiredKeys([field({ key: "url", type: "external" })], {
+          url: notAcknowledged,
+        }),
+      ).toEqual(["url"]);
+    }
+  });
+
+  test("a boolean field answered false is not missing", () => {
+    // The case the split into `isUnanswered` exists to protect. `false` is a real
+    // answer for a boolean -- "No" -- and reporting it as missing would have been
+    // a new bug introduced by fixing the external one.
+    expect(
+      missingRequiredKeys(
+        [field({ key: "tls", type: "boolean", required: true })],
+        { tls: false },
       ),
     ).toEqual([]);
   });

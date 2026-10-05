@@ -95,7 +95,6 @@ const TYPE_ONLY_UNMARKED = [
 const NOT_STUBBED: Record<string, string> = {
   PanResponder: "gesture plumbing; use Pressable in tested components",
   Keyboard: "native keyboard timing is not observable here",
-  Linking: "opens OS URLs; out of scope for render tests",
   Modal: "native presentation; renders inline in the tree instead",
   Share: "OS share sheet; nothing to assert",
   Switch: "value tracking works, but no tested screen uses it yet",

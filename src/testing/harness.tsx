@@ -21,6 +21,7 @@ import {
   resetTestContext,
   setTestContext,
   type PermissionState,
+  type QuestionState,
   type TestBiometricLock,
   type TestConnection,
 } from "@/testing/context-holds";
@@ -63,6 +64,8 @@ export interface RenderOptions {
   project?: unknown;
   /** What `usePermission()` reports, for the approval banner. */
   permission?: Partial<PermissionState>;
+  /** What `useQuestion()` reports, for the form banner. */
+  question?: Partial<QuestionState>;
   /**
    * The app lock, for the provider that holds replies while it is up.
    *

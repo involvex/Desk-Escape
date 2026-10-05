@@ -20,6 +20,7 @@ import {
   currentConnection,
   currentPermission,
   currentProject,
+  currentQuestion,
   currentTheme,
   ptySessionStub,
 } from "./context-holds";
@@ -162,6 +163,19 @@ mock.module("@/context/ConnectionContext", () => ({
 mock.module("@/context/PermissionContext", () => ({
   usePermission: () => currentPermission(),
   PermissionProvider: ({ children }: { children: unknown }) => children,
+}));
+
+/**
+ * The form (question) surface.
+ *
+ * Mocked for the same reason as the permission context: the real provider holds
+ * the pending list and posts to the server, and `QuestionBanner` only reads it.
+ * Recorded rather than driven, so what a test asserts on is the payload the banner
+ * builds — the thing that was wrong.
+ */
+mock.module("@/context/QuestionContext", () => ({
+  useQuestion: () => currentQuestion(),
+  QuestionProvider: ({ children }: { children: unknown }) => children,
 }));
 
 /**

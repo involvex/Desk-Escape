@@ -189,11 +189,25 @@ function isEmptyValue(value: FormValue | undefined): boolean {
 /**
  * Seed an answer map from the field defaults, so conditional fields start from
  * the value the form author intended rather than from `undefined`.
+ *
+ * An `external` field is seeded `false` rather than omitted. There is no default
+ * to read, but the key has to be *present* so the banner can render a controlled
+ * acknowledgement toggle against it, and the server rejects the entire reply
+ * unless every external field is acknowledged:
+ *
+ *     FormInvalidAnswerError: External form field must be acknowledged: <key>
+ *
+ * `false` is the unacknowledged state, not an answer. Only `true` is accepted --
+ * verified against a live server, where `false`, `"yes"` and `1` are all refused
+ * with the same error as omitting the key.
  */
 export function initialAnswer(fields: readonly FormField[]): FormAnswer {
   const answer: FormAnswer = {};
   for (const field of fields) {
-    if (field.type === "external") continue;
+    if (field.type === "external") {
+      answer[field.key] = false;
+      continue;
+    }
     const fallback = (field as { default?: FormValue }).default;
     if (fallback !== undefined) {
       answer[field.key] = fallback;
@@ -203,7 +217,29 @@ export function initialAnswer(fields: readonly FormField[]): FormAnswer {
 }
 
 /**
+ * Is this field still awaiting an answer?
+ *
+ * Split out from `isEmptyValue` because `false` means opposite things for the two
+ * kinds of field. For a boolean field `false` is a legitimate answer -- "No" is an
+ * answer, and reporting it as missing is the bug this split avoids. For an
+ * `external` field `false` means the user has not visited the link yet, which is
+ * exactly the state the server refuses.
+ */
+function isUnanswered(field: FormField, answer: FormAnswer): boolean {
+  if (field.type === "external") {
+    return answer[field.key] !== true;
+  }
+  return isEmptyValue(answer[field.key]);
+}
+
+/**
  * Validate the visible fields against `required`.
+ *
+ * An `external` field counts as required whether or not it says so: the server
+ * demands the acknowledgement unconditionally, so a form carrying one cannot be
+ * submitted until the user confirms they visited the link. Without this the only
+ * signal was a server rejection after the fact, naming a field the UI had
+ * presented as optional and offered no control for.
  *
  * @returns the keys that are required, visible, and still empty.
  */
@@ -212,9 +248,9 @@ export function missingRequiredKeys(
   answer: FormAnswer,
 ): string[] {
   return fields
-    .filter((field) => field.type !== "external" && field.required === true)
+    .filter((field) => field.type === "external" || field.required === true)
     .filter((field) => isFieldVisible(field, answer))
-    .filter((field) => isEmptyValue(answer[field.key]))
+    .filter((field) => isUnanswered(field, answer))
     .map((field) => field.key);
 }
 
