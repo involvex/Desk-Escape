@@ -34,6 +34,66 @@ export interface SharedValueStub<T> {
   set(next: T): void;
 }
 
+/**
+ * Whether `useAnimatedStyle` / `useDerivedValue` is currently evaluating its
+ * worklet factory.
+ *
+ * In a real runtime Reanimated runs those factories on the UI thread, *outside*
+ * React's render pass, so reading `.value` there is legal. The stub runs them
+ * synchronously inside React's render to keep the same call site, so we set
+ * this flag around the factory call to mark "this read is inside a worklet."
+ */
+let inWorklet = false;
+
+/**
+ * Render-time reads of a shared value's `.value`.
+ *
+ * Real Reanimated emits a strict-mode warning ("Reading from `value` during
+ * component render…") whenever `.value` is read in the component body rather
+ * than inside a worklet, and that warning is what precedes the render loop that
+ * saturates the JS thread. The stub can't reproduce the warning (it has no
+ * strict-mode enforcement and no frame loop), so instead it *counts* such reads —
+ * letting a test assert `renderTimeSharedValueReads() === 0` after rendering,
+ * which fails on the old code that read `opacity.value` in the body.
+ */
+let renderTimeReads = 0;
+
+/**
+ * Reset the render-time-read counter. Every asserting test must call this first.
+ */
+export function resetRenderTimeReads(): void {
+  renderTimeReads = 0;
+}
+
+/** How many `.value` reads have happened outside a worklet since the last reset. */
+export function renderTimeSharedValueReads(): number {
+  return renderTimeReads;
+}
+
+/**
+ * `runOnJS` hand-offs observed across this process.
+ *
+ * In a real runtime a `withTiming` completion callback executes on the UI
+ * worklet thread, so reaching for a React state setter from it directly is what
+ * throws "[Worklets] Tried to synchronously call a Remote Function …
+ * dispatchSetState on the UI Runtime". The fix is to route the setter through
+ * `runOnJS`, and the stub records each hand-off so a test can assert the wrapper
+ * is actually used — otherwise this is a production-only crash that no render
+ * test could otherwise catch (the stub runs callbacks on the JS thread, where the
+ * synchronous call would succeed).
+ */
+let runOnJSCalls = 0;
+
+/** Reset the `runOnJS` hand-off counter. */
+export function resetRunOnJSCalls(): void {
+  runOnJSCalls = 0;
+}
+
+/** How many `runOnJS(...)` hand-offs have happened since the last reset. */
+export function runOnJSCallsMade(): number {
+  return runOnJSCalls;
+}
+
 /** `useSharedValue`: a plain mutable box, plus the accessors Reanimated provides. */
 export function useSharedValue<T>(initial: T): SharedValueStub<T> {
   return sharedValueBox(initial);
@@ -44,10 +104,23 @@ export function useSharedValue<T>(initial: T): SharedValueStub<T> {
  *
  * Split out so `makeMutable` is not a hook calling a hook: it is not, and the
  * linter's rules-of-hooks check is right to say so. The behaviour is identical.
+ *
+ * `value` is a getter/setter rather than a plain property so a read taken
+ * outside a worklet (i.e. during a React render) is observable — see
+ * `renderTimeReads` above. Writes are unaffected.
  */
 function sharedValueBox<T>(initial: T): SharedValueStub<T> {
+  let current = initial;
   const box: SharedValueStub<T> = {
-    value: initial,
+    get value(): T {
+      if (!inWorklet) {
+        renderTimeReads += 1;
+      }
+      return current;
+    },
+    set value(next: T) {
+      current = next;
+    },
     get: () => box.value,
     set: (next: T) => {
       box.value = next;
@@ -63,9 +136,18 @@ function sharedValueBox<T>(initial: T): SharedValueStub<T> {
  * Components call it during render, which means the style reflects the current
  * `.value` at render time — and because `withTiming` resolves immediately, that
  * is the destination rather than the start.
+ *
+ * The factory is flagged as running inside a worklet so its `.value` reads are
+ * not recorded by `renderTimeReads` — mirroring real Reanimated, where the
+ * factory executes on the UI thread outside React's render pass.
  */
 export function useAnimatedStyle<T>(factory: () => T): T {
-  return factory();
+  inWorklet = true;
+  try {
+    return factory();
+  } finally {
+    inWorklet = false;
+  }
 }
 
 /**
@@ -102,8 +184,16 @@ export function withSequence<T>(values: readonly T[]): T | undefined {
   return values[values.length - 1];
 }
 
-/** `runOnJS`: already on the JS thread, so the function is returned unchanged. */
+/**
+ * `runOnJS`: hands a JS function to the UI thread by returning it unchanged here.
+ *
+ * The stub is single-threaded, so it returns the function directly — but it also
+ * counts the hand-off so a test can assert a component did not call a React state
+ * setter straight out of a `withTiming` completion callback (a call that runs on
+ * the real UI thread and is what crashes with dispatchSetState-as-remote-fn).
+ */
 export function runOnJS<T extends (...args: never[]) => unknown>(fn: T): T {
+  runOnJSCalls += 1;
   return fn;
 }
 
@@ -177,9 +267,14 @@ export const reanimatedStub = {
   Animated,
   useSharedValue,
   useAnimatedStyle,
-  useDerivedValue: <T>(factory: () => T): { value: T } => ({
-    value: factory(),
-  }),
+  useDerivedValue: <T>(factory: () => T): { value: T } => {
+    inWorklet = true;
+    try {
+      return { value: factory() };
+    } finally {
+      inWorklet = false;
+    }
+  },
   withTiming,
   withSpring,
   withDecay,

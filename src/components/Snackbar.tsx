@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -33,6 +34,23 @@ export function Snackbar({
   const opacity = useSharedValue(0);
   const dismissedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Unmounts are driven by React state, never by reading `opacity.value` in the
+   * component body. Reading a shared value during render is what Reanimated flags
+   * in strict mode ("Reading from `value` during component render") and is the
+   * root of the render loop that flapped the session header and stalled the
+   * message-fetch query. Instead, the snackbar stays mounted until its hide
+   * animation finishes — then this flag flips in the `withTiming` completion
+   * callback (a worklet, not a render read) and the guard below unmounts it.
+   * The show callback clears it again so the exit animation still runs on the
+   * next hide. Because both `setState` calls are routed through `runOnJS`, they
+   * execute on the JS thread (not the UI worklet thread) and the
+   * react-hooks/set-state-in-effect guard stays clean — and more importantly
+   * they do not trip the Worklets "Remote Function / dispatchSetState on the UI
+   * Runtime" crash that a synchronous setter call from a completion callback
+   * would otherwise raise.
+   */
+  const [unmounted, setUnmounted] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -41,7 +59,14 @@ export function Snackbar({
         duration: 220,
         easing: Easing.out(Easing.cubic),
       });
-      opacity.value = withTiming(1, { duration: 180 });
+      opacity.value = withTiming(1, { duration: 180 }, () =>
+        // `withTiming`'s completion callback runs on the UI worklet thread in a
+        // real runtime, so the React state setter must be handed off to the JS
+        // thread via `runOnJS` — calling it directly is what raises
+        // "[Worklets] Tried to synchronously call a Remote Function …
+        // dispatchSetState on the UI Runtime".
+        runOnJS(setUnmounted)(false),
+      );
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         if (!dismissedRef.current) {
@@ -51,7 +76,9 @@ export function Snackbar({
       }, durationMs);
     } else {
       translateY.value = withTiming(100, { duration: 180 });
-      opacity.value = withTiming(0, { duration: 160 });
+      opacity.value = withTiming(0, { duration: 160 }, () => {
+        runOnJS(setUnmounted)(true);
+      });
     }
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -102,7 +129,7 @@ export function Snackbar({
     },
   });
 
-  if (!visible && opacity.value === 0) return null;
+  if (!visible && unmounted) return null;
 
   return (
     <Animated.View

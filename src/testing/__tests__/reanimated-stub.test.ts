@@ -3,6 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   Animated,
   reanimatedStub,
+  renderTimeSharedValueReads,
+  resetRenderTimeReads,
+  resetRunOnJSCalls,
+  runOnJSCallsMade,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -181,5 +185,76 @@ describe("the module namespace", () => {
     const box = reanimatedStub.makeMutable(3);
     box.value = 4;
     expect(box.get()).toBe(4);
+  });
+});
+
+describe("render-time shared-value read tracking", () => {
+  test("a .value read taken outside a worklet is counted", () => {
+    // This is the pattern that emitted the real Reanimated strict-mode warning:
+    // a component reading `box.value` in its body, not in `useAnimatedStyle`.
+    resetRenderTimeReads();
+    const box = useSharedValue(0);
+    void box.value;
+
+    expect(renderTimeSharedValueReads()).toBe(1);
+  });
+
+  test("a .value read inside useAnimatedStyle is not counted", () => {
+    // `useAnimatedStyle`'s factory is the only legitimate place to read a shared
+    // value, and it runs flagged as a worklet so it is invisible to the counter.
+    resetRenderTimeReads();
+    const box = useSharedValue(0);
+    useAnimatedStyle(() => ({ opacity: box.value }));
+
+    expect(renderTimeSharedValueReads()).toBe(0);
+  });
+
+  test("resetting zeroes the counter between tests", () => {
+    // The counter is module-level, so a previous test that read `.value` must not
+    // bleed into the next one; `resetRenderTimeReads` is the barrier.
+    void useSharedValue(0).value;
+    expect(renderTimeSharedValueReads()).toBeGreaterThan(0);
+
+    resetRenderTimeReads();
+    expect(renderTimeSharedValueReads()).toBe(0);
+  });
+});
+
+describe("runOnJS hand-off tracking", () => {
+  test("each runOnJS(fn) call is counted", () => {
+    // The stub returns `fn` unchanged (already JS-thread), but it records the
+    // hand-off so a test can prove a `withTiming` completion callback routed its
+    // state setter through `runOnJS` instead of calling it on the UI thread —
+    // the exact move that avoids the "[Worklets] Tried to synchronously call a
+    // Remote Function … dispatchSetState on the UI Runtime" crash.
+    resetRunOnJSCalls();
+
+    runOnJS(() => {});
+    runOnJS(() => {});
+    runOnJS(() => {});
+
+    expect(runOnJSCallsMade()).toBe(3);
+  });
+
+  test("the returned function is still callable and behaves identically", () => {
+    // Counting must not change the contract: it is a transparent pass-through.
+    resetRunOnJSCalls();
+    const fn = () => 42;
+    const wrapped = runOnJS(fn);
+
+    expect(wrapped).toBe(fn);
+    expect(wrapped()).toBe(42);
+    expect(runOnJSCallsMade()).toBe(1);
+  });
+
+  test("resetting zeroes the counter between tests", () => {
+    // Module-level state must not leak a "truthy" reading into a component test
+    // that asserts `runOnJSCallsMade() === 0` on a component that never calls
+    // `runOnJS`.
+    runOnJS(() => {});
+    expect(runOnJSCallsMade()).toBeGreaterThan(0);
+
+    resetRunOnJSCalls();
+    expect(runOnJSCallsMade()).toBe(0);
   });
 });
