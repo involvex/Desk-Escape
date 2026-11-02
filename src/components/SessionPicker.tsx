@@ -39,7 +39,7 @@ import {
 } from "@/utils/session-ranking";
 import { partitionArchived } from "@/utils/session-meta";
 import { Snackbar } from "@/components/Snackbar";
-import { Swipeable } from "react-native-gesture-handler";
+import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { toChatMessages } from "@/api/opencode/adapter";
 interface SessionPickerProps {
   visible: boolean;

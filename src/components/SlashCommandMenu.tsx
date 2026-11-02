@@ -123,21 +123,23 @@ export function SlashCommandMenu({
           </Pressable>
         )}
         ListFooterComponent={
-          isAgentCommand || isModelCommand ? (
-            <Pressable
-              onPress={isAgentCommand ? handleAgentPress : handleModelPress}
-              style={styles.item}
-            >
-              <Text style={styles.name}>
-                {isAgentCommand ? "/agent" : "/model"}
-              </Text>
-              <Text style={styles.description}>
-                {isAgentCommand
-                  ? "Open agent picker to switch agent"
-                  : "Open model picker to switch model"}
-              </Text>
-            </Pressable>
-          ) : null
+          isAgentCommand || isModelCommand
+            ? () => (
+                <Pressable
+                  onPress={isAgentCommand ? handleAgentPress : handleModelPress}
+                  style={styles.item}
+                >
+                  <Text style={styles.name}>
+                    {isAgentCommand ? "/agent" : "/model"}
+                  </Text>
+                  <Text style={styles.description}>
+                    {isAgentCommand
+                      ? "Open agent picker to switch agent"
+                      : "Open model picker to switch model"}
+                  </Text>
+                </Pressable>
+              )
+            : undefined
         }
       />
     </View>

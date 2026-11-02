@@ -274,16 +274,18 @@ export function SavedPermissionsScreen({ navigation }: Props) {
           </View>
         }
         ListEmptyComponent={
-          grants.length === 0 ? (
-            <View style={styles.empty}>
-              <ShieldOff color={colors.textMuted} size={28} />
-              <Text style={styles.emptyText}>
-                {unsourced
-                  ? "Resolving which project's grants to show…"
-                  : 'No persistent grants. Answering a permission request with "Always" adds one here.'}
-              </Text>
-            </View>
-          ) : null
+          grants.length === 0
+            ? () => (
+                <View style={styles.empty}>
+                  <ShieldOff color={colors.textMuted} size={28} />
+                  <Text style={styles.emptyText}>
+                    {unsourced
+                      ? "Resolving which project's grants to show…"
+                      : 'No persistent grants. Answering a permission request with "Always" adds one here.'}
+                  </Text>
+                </View>
+              )
+            : undefined
         }
         renderItem={({ item }) => (
           <View style={styles.row}>

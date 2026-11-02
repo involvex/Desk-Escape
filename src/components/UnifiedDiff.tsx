@@ -469,19 +469,23 @@ export function UnifiedDiff({ visible, onClose }: UnifiedDiffProps) {
         ) : (
           <SectionList
             ListEmptyComponent={
-              message ? <Text style={styles.empty}>{message}</Text> : null
+              message
+                ? () => <Text style={styles.empty}>{message}</Text>
+                : undefined
             }
             ListHeaderComponent={
-              sections.length > 1 ? (
-                <TextInput
-                  autoCapitalize="none"
-                  onChangeText={setFilter}
-                  placeholder="Filter files"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.search}
-                  value={filter}
-                />
-              ) : null
+              sections.length > 1
+                ? () => (
+                    <TextInput
+                      autoCapitalize="none"
+                      onChangeText={setFilter}
+                      placeholder="Filter files"
+                      placeholderTextColor={colors.textMuted}
+                      style={styles.search}
+                      value={filter}
+                    />
+                  )
+                : undefined
             }
             refreshControl={
               <RefreshControl

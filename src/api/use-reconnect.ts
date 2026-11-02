@@ -77,7 +77,9 @@ export function useReconnect({
   onFailed,
 }: UseReconnectOptions) {
   const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const appStateRef = useRef<AppStateStatus>(
+    (AppState.currentState as AppStateStatus | null) ?? "active",
+  );
   const abortRef = useRef<AbortController | null>(null);
 
   const clearHealthPing = useCallback(() => {

@@ -528,51 +528,56 @@ export function AgentChat({
       <View style={styles.listWrap}>
         <FlatList
           ref={listRef}
-          contentContainerStyle={[
-            styles.listContent,
-            isEmpty ? styles.listContentEmpty : null,
-          ]}
+          contentContainerStyle={
+            isEmpty
+              ? [styles.listContent, styles.listContentEmpty]
+              : styles.listContent
+          }
           data={validMessages}
           inverted
           keyboardShouldPersistTaps="handled"
           keyExtractor={(item) => item.info.id}
           ListEmptyComponent={
-            isLoading ? null : (
-              <View style={styles.emptyWrap}>
-                <Text style={styles.emptyText}>
-                  Ask the agent to inspect, edit, or run commands. Try /
-                  {hintCommand} or open the command palette.
-                </Text>
-                <View style={styles.emptyActions}>
-                  {onCreateSession ? (
-                    <Pressable
-                      onPress={onCreateSession}
-                      style={styles.emptyButton}
-                    >
-                      <Text style={styles.emptyButtonText}>New session</Text>
-                    </Pressable>
-                  ) : null}
-                  {onOpenPalette ? (
-                    <Pressable
-                      onPress={onOpenPalette}
-                      style={styles.emptyButton}
-                    >
-                      <Text style={styles.emptyButtonText}>
-                        Command palette
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    onPress={() => setDraft(`/${hintCommand} `)}
-                    style={styles.emptyButton}
-                  >
-                    <Text style={styles.emptyButtonText}>
-                      Try /{hintCommand}
+            isLoading
+              ? undefined
+              : () => (
+                  <View style={styles.emptyWrap}>
+                    <Text style={styles.emptyText}>
+                      Ask the agent to inspect, edit, or run commands. Try /
+                      {hintCommand} or open the command palette.
                     </Text>
-                  </Pressable>
-                </View>
-              </View>
-            )
+                    <View style={styles.emptyActions}>
+                      {onCreateSession ? (
+                        <Pressable
+                          onPress={onCreateSession}
+                          style={styles.emptyButton}
+                        >
+                          <Text style={styles.emptyButtonText}>
+                            New session
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {onOpenPalette ? (
+                        <Pressable
+                          onPress={onOpenPalette}
+                          style={styles.emptyButton}
+                        >
+                          <Text style={styles.emptyButtonText}>
+                            Command palette
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        onPress={() => setDraft(`/${hintCommand} `)}
+                        style={styles.emptyButton}
+                      >
+                        <Text style={styles.emptyButtonText}>
+                          Try /{hintCommand}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )
           }
           onContentSizeChange={handleContentSizeChange}
           onLayout={handleListLayout}

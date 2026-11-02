@@ -1,4 +1,5 @@
 import * as Notifications from "expo-notifications";
+import { AndroidImportance } from "expo-notifications";
 import { Platform } from "react-native";
 import type { PendingPermission } from "@/api/permissions";
 
@@ -107,7 +108,7 @@ export async function setupNotificationChannel(): Promise<void> {
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync(PERMISSION_CHANNEL_ID, {
       name: "Agent permission requests",
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
     });
   }

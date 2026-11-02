@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import type { ComponentRef } from "react";
 import { useCurrentProject } from "@/api/hooks";
 import { requestPtyConnectTicket, usePtySession } from "@/api/use-pty-session";
 import { toOpenCodeError, withOpenCodeErrors } from "@/api/opencode/errors";
@@ -62,7 +63,7 @@ export function TerminalPanel({ bottomInset = 0 }: TerminalPanelProps) {
   const [webViewState, setWebViewState] =
     useState<WebViewConnectionState>("loading");
   const [webViewError, setWebViewError] = useState<string | null>(null);
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<ComponentRef<typeof WebView>>(null);
 
   const directory =
     activeDirectory ?? currentProject?.worktree ?? project?.worktree ?? null;

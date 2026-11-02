@@ -174,7 +174,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
    */
   const inFlightRef = useRef<Set<string>>(new Set());
   const [appState, setAppState] = useState<AppStateStatus>(
-    AppState.currentState,
+    (AppState.currentState as AppStateStatus | null) ?? "active",
   );
 
   const handlePermission = useCallback(
