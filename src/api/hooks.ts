@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import type { OpenCodeClient, V2Event } from "@opencode/client";
+import type { V2Event } from "@opencode/client";
 
 import {
   applyStreamEvent,
@@ -11,12 +11,12 @@ import { withLocation } from "@/api/opencode/location";
 import { withOpenCodeErrors } from "@/api/opencode/errors";
 import { decodeFileContent } from "@/api/opencode/file-content";
 import {
-  toChatMessages,
   toFileEntry,
   toModel,
   toProvider,
   toSession,
 } from "@/api/opencode/adapter";
+import { fetchSessionMessages } from "@/api/opencode/messages";
 import { useConnection } from "@/context/ConnectionContext";
 import type {
   Agent,
@@ -51,39 +51,6 @@ export const modelsKey = (directory?: string | null) =>
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
-
-/**
- * Fetch a session's transcript.
- *
- * V2 moved this off `session.messages` onto a top-level `message.list`
- * namespace, returns the messages **nested** (no separate parts array), and
- * paginates with a cursor. `order: "asc"` keeps chronological order, matching
- * how the transcript is rendered.
- */
-async function fetchSessionMessages(
-  client: OpenCodeClient,
-  sessionId: string,
-): Promise<ChatMessage[]> {
-  const messages: Awaited<
-    ReturnType<OpenCodeClient["message"]["list"]>
-  >["data"] = [];
-
-  let cursor: string | undefined;
-  // Follow the cursor to completion; a long session spans several pages.
-  do {
-    const page = await withOpenCodeErrors(() =>
-      client.message.list({
-        sessionID: sessionId,
-        order: "asc",
-        ...(cursor ? { cursor } : {}),
-      }),
-    );
-    messages.push(...page.data);
-    cursor = page.cursor?.next ?? undefined;
-  } while (cursor);
-
-  return toChatMessages(messages);
-}
 
 export function useSessions() {
   const { client, activeDirectory } = useConnection();
@@ -625,9 +592,16 @@ export function useSendPrompt(sessionId: string | null) {
         return;
       }
 
-      const messages = await fetchSessionMessages(client, sessionId);
-      queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
-      setAgentActive(false);
+      try {
+        const messages = await fetchSessionMessages(client, sessionId);
+        queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
+      } catch {
+        // The event stream is the primary transcript source, so a failed refresh
+        // must not become an unhandled rejection — and must not strand the
+        // agent in the active state by skipping the `finally` below.
+      } finally {
+        setAgentActive(false);
+      }
     },
   });
 }
@@ -704,9 +678,16 @@ export function useExecuteCommand(sessionId: string | null) {
         return;
       }
 
-      const messages = await fetchSessionMessages(client, sessionId);
-      queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
-      setAgentActive(false);
+      try {
+        const messages = await fetchSessionMessages(client, sessionId);
+        queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
+      } catch {
+        // The event stream is the primary transcript source, so a failed refresh
+        // must not become an unhandled rejection — and must not strand the
+        // agent in the active state by skipping the `finally` below.
+      } finally {
+        setAgentActive(false);
+      }
     },
   });
 }
@@ -728,9 +709,14 @@ export function useSessionMessageStream(sessionId: string | null) {
       }
 
       if (shouldRefetchMessages(event)) {
-        void fetchSessionMessages(client, sessionId).then((messages) => {
-          queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
-        });
+        void fetchSessionMessages(client, sessionId)
+          .then((messages) => {
+            queryClient.setQueryData(sessionMessagesKey(sessionId), messages);
+          })
+          .catch(() => {
+            // Best-effort resync; the query keeps its previous data and the next
+            // event (or a manual retry) will try again.
+          });
         return;
       }
 

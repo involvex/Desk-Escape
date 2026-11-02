@@ -17,7 +17,8 @@ import {
 } from "./client";
 import { withLocation } from "@/api/opencode/location";
 import { withOpenCodeErrors } from "@/api/opencode/errors";
-import { toChatMessages, toFileEntry } from "@/api/opencode/adapter";
+import { toFileEntry } from "@/api/opencode/adapter";
+import { fetchSessionMessages } from "@/api/opencode/messages";
 import { EventBus } from "./event-bus";
 
 /** Shape both `session.list` and `session.get` results are reduced to. */
@@ -133,12 +134,10 @@ export class OpenCodeProvider implements AgentProvider {
 
   async getMessages(sessionId: string): Promise<ChatMessage[]> {
     const client = this.requireClient();
-    // V2 moved this to a top-level `message.list` namespace and returns the
-    // messages nested (assistant content is inline, there is no parts array).
-    const page = await withOpenCodeErrors(() =>
-      client.message.list({ sessionID: sessionId, order: "asc" }),
-    );
-    return toChatMessages(page.data);
+    // Pagination, ordering and the nested-content shape all live in the shared
+    // fetcher; reading only the first `message.list` page silently truncates
+    // every transcript longer than 50 messages.
+    return fetchSessionMessages(client, sessionId);
   }
 
   async sendPrompt(

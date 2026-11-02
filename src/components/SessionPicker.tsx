@@ -40,7 +40,7 @@ import {
 import { partitionArchived } from "@/utils/session-meta";
 import { Snackbar } from "@/components/Snackbar";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
-import { toChatMessages } from "@/api/opencode/adapter";
+import { fetchSessionMessages } from "@/api/opencode/messages";
 interface SessionPickerProps {
   visible: boolean;
   onClose: () => void;
@@ -218,13 +218,10 @@ export function SessionPicker({ visible, onClose }: SessionPickerProps) {
         return;
       }
       try {
-        // V2 moved message listing to a top-level `message.list` namespace and
-        // returns messages nested, so run it through the shared adapter.
-        const result = await client.message.list({
-          sessionID: session.id,
-          order: "asc",
-        });
-        const messages = toChatMessages(result.data);
+        // Shared fetcher: follows the cursor across pages and applies the
+        // nested-content adapter, so an export contains the whole transcript
+        // rather than the first `message.list` page.
+        const messages = await fetchSessionMessages(client, session.id);
         await shareSessionMarkdown(session, messages);
       } catch (error) {
         console.error("Failed to export session:", error);

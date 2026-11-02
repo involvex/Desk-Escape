@@ -30,3 +30,5 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v56.0.0/ before 
 - Before native dependency bumps run `bunx expo install --check`; do not re-add `expo.install.exclude` overrides without intentional testing.
 - Navigation: React Navigation native stack (`RootNavigator`), not Expo Router.
 - No SDK `project.switch`; multi-project context via optional `directory` query on API calls or client recreation.
+- `message.list` pagination contract: send `order` **only** on the first request; a `cursor` request must omit it (`InvalidCursorError: Cursor cannot be combined with order`). Default page = 50, max `limit` = 200, `limit` is legal with a cursor, and the last data page is followed by a cursor pointing at an empty page. All transcript reads go through `fetchSessionMessages` in `src/api/opencode/messages.ts`.
+- `AgentChat`'s transcript `FlatList` is `inverted`; anything rendered as `ListEmptyComponent` inherits `scaleY: -1` and comes out upside down. Empty/error states must be siblings of the list (`ChatEmptyState`), not list components.

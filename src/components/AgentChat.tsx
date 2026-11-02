@@ -29,6 +29,7 @@ import { toOpenCodeError } from "@/api/opencode/errors";
 import { useHaptics } from "@/hooks/useHaptics";
 import { AttachmentChips } from "@/components/AttachmentChips";
 import { ChatMessageBubble } from "@/components/chat/ChatMessageBubble";
+import { ChatEmptyState } from "@/components/chat/ChatEmptyState";
 import {
   ChatScrollControls,
   type ChatScrollMetrics,
@@ -100,7 +101,13 @@ export function AgentChat({
     agentActive,
     selectSession,
   } = useConnection();
-  const { data: messages = [], isLoading } = useSessionMessages(sessionId);
+  const {
+    data: messages = [],
+    error: messagesError,
+    isFetching,
+    isLoading,
+    refetch: refetchMessages,
+  } = useSessionMessages(sessionId);
 
   // Filter out any malformed messages
   const validMessages = useMemo(
@@ -177,8 +184,13 @@ export function AgentChat({
           paddingBottom: spacing.md,
           paddingRight: spacing.sm,
         },
-        listContentEmpty: {
-          flexGrow: 1,
+        emptyOverlay: {
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          alignItems: "center",
           justifyContent: "center",
         },
         composerWrap: {},
@@ -236,35 +248,6 @@ export function AgentChat({
           paddingHorizontal: spacing.md,
         },
         pasteButtonText: {
-          color: colors.text,
-          fontSize: typography.caption,
-          fontWeight: "600",
-        },
-        emptyWrap: {
-          alignItems: "center",
-          gap: spacing.md,
-          paddingHorizontal: spacing.lg,
-        },
-        emptyText: {
-          color: colors.textMuted,
-          fontSize: typography.body,
-          textAlign: "center",
-        },
-        emptyActions: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: spacing.sm,
-          justifyContent: "center",
-        },
-        emptyButton: {
-          backgroundColor: colors.surface,
-          borderColor: colors.border,
-          borderRadius: 999,
-          borderWidth: 1,
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
-        },
-        emptyButtonText: {
           color: colors.text,
           fontSize: typography.caption,
           fontWeight: "600",
@@ -501,6 +484,12 @@ export function AgentChat({
   };
 
   const isEmpty = !isLoading && validMessages.length === 0;
+  // Normalized so auth failures explain themselves ("wrong username") instead of
+  // surfacing a raw SDK string. A failed query used to render the plain empty
+  // state, which is why "no messages" and "fetch broke" looked identical.
+  const loadErrorMessage = messagesError
+    ? toOpenCodeError(messagesError).message
+    : null;
   const isPending = sendPrompt.isPending || executeCommand.isPending;
 
   // `agentActive` is driven by the event stream (`isAgentBusyEvent`), so it stays
@@ -528,57 +517,11 @@ export function AgentChat({
       <View style={styles.listWrap}>
         <FlatList
           ref={listRef}
-          contentContainerStyle={
-            isEmpty
-              ? [styles.listContent, styles.listContentEmpty]
-              : styles.listContent
-          }
+          contentContainerStyle={styles.listContent}
           data={validMessages}
           inverted
           keyboardShouldPersistTaps="handled"
           keyExtractor={(item) => item.info.id}
-          ListEmptyComponent={
-            isLoading
-              ? undefined
-              : () => (
-                  <View style={styles.emptyWrap}>
-                    <Text style={styles.emptyText}>
-                      Ask the agent to inspect, edit, or run commands. Try /
-                      {hintCommand} or open the command palette.
-                    </Text>
-                    <View style={styles.emptyActions}>
-                      {onCreateSession ? (
-                        <Pressable
-                          onPress={onCreateSession}
-                          style={styles.emptyButton}
-                        >
-                          <Text style={styles.emptyButtonText}>
-                            New session
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                      {onOpenPalette ? (
-                        <Pressable
-                          onPress={onOpenPalette}
-                          style={styles.emptyButton}
-                        >
-                          <Text style={styles.emptyButtonText}>
-                            Command palette
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                      <Pressable
-                        onPress={() => setDraft(`/${hintCommand} `)}
-                        style={styles.emptyButton}
-                      >
-                        <Text style={styles.emptyButtonText}>
-                          Try /{hintCommand}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                )
-          }
           onContentSizeChange={handleContentSizeChange}
           onLayout={handleListLayout}
           onScroll={handleScroll}
@@ -586,18 +529,36 @@ export function AgentChat({
           scrollEventThrottle={16}
           style={styles.list}
         />
-        <ChatScrollBar
-          listRef={listRef}
-          onScrollOffset={handleScrollOffset}
-          scrollMetrics={scrollMetrics}
-        />
-        <ChatScrollControls
-          onScrollToBottom={scrollToBottom}
-          onScrollToTop={scrollToTop}
-          onToggleCollapseMode={handleToggleCollapseMode}
-          scrollMetrics={scrollMetrics}
-          sessionCollapseMode={sessionCollapseMode}
-        />
+        {isEmpty ? (
+          // Sibling of the list, not `ListEmptyComponent`: the list is inverted,
+          // so anything rendered inside it comes out upside down.
+          <View pointerEvents="box-none" style={styles.emptyOverlay}>
+            <ChatEmptyState
+              error={loadErrorMessage}
+              hintCommand={hintCommand}
+              isRetrying={isFetching}
+              onCreateSession={onCreateSession}
+              onOpenPalette={onOpenPalette}
+              onRetry={() => void refetchMessages()}
+              onTryHint={() => setDraft(`/${hintCommand} `)}
+            />
+          </View>
+        ) : (
+          <ChatScrollBar
+            listRef={listRef}
+            onScrollOffset={handleScrollOffset}
+            scrollMetrics={scrollMetrics}
+          />
+        )}
+        {!isEmpty ? (
+          <ChatScrollControls
+            onScrollToBottom={scrollToBottom}
+            onScrollToTop={scrollToTop}
+            onToggleCollapseMode={handleToggleCollapseMode}
+            scrollMetrics={scrollMetrics}
+            sessionCollapseMode={sessionCollapseMode}
+          />
+        ) : null}
       </View>
 
       <KeyboardAvoidingView

@@ -106,3 +106,49 @@ describe("OpenCodeProvider capabilities", () => {
     expect(provider.type).toBe("opencode");
   });
 });
+
+describe("OpenCodeProvider.getMessages", () => {
+  /**
+   * The Stop path refetches through the provider. Reading a single
+   * `message.list` page here silently truncated every transcript longer than 50
+   * messages, so the assertion is just "more than one page".
+   */
+  test("returns the whole transcript, not only the first page", async () => {
+    const calls: { sessionID: string; cursor?: string; order?: string }[] = [];
+    const client = {
+      message: {
+        list: async (input: {
+          sessionID: string;
+          cursor?: string;
+          order?: string;
+        }) => {
+          calls.push(input);
+          if (input.cursor !== undefined && input.order !== undefined) {
+            throw Object.assign(
+              new Error("Cursor cannot be combined with order"),
+              { _tag: "InvalidCursorError" },
+            );
+          }
+          const start = input.cursor ? Number(input.cursor) : 0;
+          const count = Math.max(0, Math.min(50, 120 - start));
+          return {
+            data: Array.from({ length: count }, (_, index) => ({
+              id: `msg_${start + index}`,
+              type: "user" as const,
+              time: { created: 1000 + start + index },
+              text: `message ${start + index}`,
+            })),
+            cursor: { previous: null, next: String(start + count) },
+          };
+        },
+      },
+    };
+    const provider = providerWith(client);
+
+    const messages = await provider.getMessages("ses_1");
+
+    expect(messages).toHaveLength(120);
+    expect(messages.at(-1)?.info.id).toBe("msg_119");
+    expect(calls.length).toBeGreaterThan(1);
+  });
+});
